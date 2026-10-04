@@ -2,10 +2,16 @@
   "use strict";
 
   const navItems = [...document.querySelectorAll(".nav-item[data-view]")];
+  const subNavs = [...document.querySelectorAll(".sub-nav")];
   const views = [...document.querySelectorAll(".view")];
 
-  const activateView = (name) => {
-    for (const item of navItems) item.classList.toggle("is-active", item.dataset.view === name);
+  const activate = (name, group) => {
+    for (const item of navItems) {
+      item.classList.toggle("is-active", item.dataset.view === name);
+    }
+    for (const sub of subNavs) {
+      sub.classList.toggle("is-open", sub.dataset.group === group);
+    }
     for (const view of views) {
       const active = view.id === `view-${name}`;
       view.classList.toggle("is-active", active);
@@ -15,19 +21,15 @@
   };
 
   navItems.forEach((item) => {
-    item.addEventListener("click", () => activateView(item.dataset.view ?? "dashboard"));
+    item.addEventListener("click", () => activate(item.dataset.view ?? "today", item.dataset.group ?? "today"));
   });
 
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
-    if (target === null) return;
-    if (target.getAttribute("data-action") === "goto-view") {
-      activateView(target.getAttribute("data-target") ?? "dashboard");
-      return;
-    }
-    // Desktop application entry point; matches the shell-owned application document.
-    if (target.getAttribute("data-action") === "open-assistant") {
-      window.location.assign("dsh-app://app/");
+    if (target !== null && target.getAttribute("data-action") === "goto-view") {
+      const name = target.getAttribute("data-target") ?? "today";
+      const owner = navItems.find(item => item.dataset.view === name);
+      activate(name, owner?.dataset.group ?? name);
     }
   });
 })();
