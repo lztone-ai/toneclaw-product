@@ -1,17 +1,19 @@
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const releaseDir = resolve(root, 'release')
 const transportSource = resolve(releaseDir, 'feishu-long-connection')
 const profileSource = resolve(releaseDir, 'profiles/desktop.patch.yml')
+const uiSource = resolve(root, 'packages/desktop-ui/dist')
 const resourcesDir = resolve(releaseDir, 'desktop-resources')
 const pluginDestination = resolve(resourcesDir, 'plugins/feishu-long-connection')
+const uiDestination = resolve(resourcesDir, 'ui')
 const profileDestination = resolve(resourcesDir, 'profiles/desktop.patch.yml')
 
 async function productCommit() {
@@ -49,39 +51,53 @@ if (!existsSync(transportSource)) {
 if (!existsSync(profileSource)) {
   throw new Error(`generated profile missing: ${profileSource}; run pnpm run package:transport`)
 }
+if (!existsSync(join(uiSource, 'index.html'))) {
+  throw new Error(`desktop UI build missing: ${uiSource}; run pnpm --filter @toneclaw/desktop-ui run build`)
+}
 
 rmSync(resourcesDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 cpSync(transportSource, pluginDestination, { recursive: true, dereference: true })
+cpSync(uiSource, uiDestination, { recursive: true, dereference: true })
 
 // Regenerate the profile for its final resource-relative location.
 const pluginEntrySource = join(pluginDestination, 'dist/index.mjs')
-const generator = new URL('./generate-profile.mjs', import.meta.url)
-const { spawnSync } = await import('node:child_process')
-const generated = spawnSync(process.execPath, [fileURLToPath(generator),
+const generator = resolve(root, 'scripts/generate-profile.mjs')
+const generated = spawnSync(process.execPath, [generator,
   '--plugin', pluginEntrySource,
   '--out', profileDestination,
 ], { stdio: 'inherit', windowsHide: true })
 if (generated.status !== 0) process.exit(generated.status ?? 1)
 
-const patchText = readFileSync(profileDestination, 'utf8')
-assertNoDeveloperPaths(patchText.replaceAll(root.replaceAll('\\', '/'), ''))
+for (const text of [readFileSync(profileDestination, 'utf8'), readFileSync(join(uiDestination, 'index.html'), 'utf8'),
+  readFileSync(join(uiDestination, 'app.js'), 'utf8')]) {
+  assertNoDeveloperPaths(text.replaceAll(root.replaceAll('\\', '/'), ''))
+}
 const pluginModule = await import(pathToFileURL(pluginEntrySource).href)
 if (pluginModule.name !== 'feishu-long-connection' || !Array.isArray(pluginModule.inject)) {
   throw new Error('composed transport plugin does not expose the expected Cordis entry shape')
 }
 
 const engineLock = JSON.parse(readFileSync(resolve(root, 'engine-lock.json'), 'utf8'))
-const packageManifest = JSON.parse(readFileSync(join(transportSource, 'package.json'), 'utf8'))
+const transportManifest = JSON.parse(readFileSync(join(transportSource, 'package.json'), 'utf8'))
+const uiManifest = JSON.parse(readFileSync(resolve(root, 'packages/desktop-ui/package.json'), 'utf8'))
 const manifest = {
   schemaVersion: 1,
   productCommit: await productCommit(),
   engine: engineLock.engine,
-  packages: [{
-    name: packageManifest.name,
-    version: packageManifest.version,
-    path: 'plugins/feishu-long-connection',
-    entry: 'plugins/feishu-long-connection/dist/index.mjs',
-  }],
+  packages: [
+    {
+      name: transportManifest.name,
+      version: transportManifest.version,
+      path: 'plugins/feishu-long-connection',
+      entry: 'plugins/feishu-long-connection/dist/index.mjs',
+    },
+    {
+      name: uiManifest.name,
+      version: uiManifest.version,
+      path: 'ui',
+      entry: 'ui/index.html',
+    },
+  ],
   profiles: [{
     id: 'desktop',
     path: 'profiles/desktop.patch.yml',
@@ -89,9 +105,10 @@ const manifest = {
   files: inventory(resourcesDir),
 }
 writeFileSync(join(resourcesDir, 'toneclaw-manifest.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
-writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\n`)
+writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\nUI entry: ${manifest.packages[1].entry}\n`)
 
 console.log(`desktop resources: ${resourcesDir}`)
 console.log(`files: ${manifest.files.length}`)
 console.log(`plugin: ${manifest.packages[0].entry}`)
+console.log(`ui: ${manifest.packages[1].entry}`)
 console.log(`profile: ${manifest.profiles[0].path}`)

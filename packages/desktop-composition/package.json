@@ -1,0 +1,12 @@
+{
+  "name": "@toneclaw/desktop-composition",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Composition root assembling the ToneClaw desktop resource bundle.",
+  "license": "UNLICENSED",
+  "toneclaw": {
+    "layer": "product",
+    "kind": "product-library"
+  }
+}

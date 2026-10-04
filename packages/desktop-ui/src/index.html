@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>ToneClaw 工作台</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="status-ribbon">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">TC</span>
+          <strong>ToneClaw</strong>
+        </div>
+        <div class="store-status" aria-live="polite">
+          <span class="pill pill-warning">未连接真实店铺</span>
+          <span class="status-text">Temu 半托管 · 等待授权</span>
+        </div>
+        <div class="usage">
+          <span>AI 额度</span>
+          <strong>0 / 50,000</strong>
+        </div>
+      </header>
+
+      <div class="layout">
+        <nav class="side-nav" aria-label="工作台导航">
+          <div class="nav-group">总览</div>
+          <button class="nav-item is-active" type="button" data-view="dashboard">工作台</button>
+          <div class="nav-group">渠道</div>
+          <button class="nav-item" type="button" data-view="store">店铺</button>
+          <div class="nav-group">货源</div>
+          <button class="nav-item" type="button" data-view="sourcing">货盘</button>
+          <button class="nav-item" type="button" data-view="selection">选品</button>
+          <div class="nav-group">商品</div>
+          <button class="nav-item" type="button" data-view="products">商品</button>
+          <button class="nav-item" type="button" data-view="images">图片</button>
+          <div class="nav-group">发布</div>
+          <button class="nav-item" type="button" data-view="listings">Listing</button>
+          <button class="nav-item" type="button" data-view="publish-jobs">发布任务</button>
+          <div class="nav-group">经营</div>
+          <button class="nav-item" type="button" data-view="orders">订单</button>
+          <button class="nav-item" type="button" data-view="fulfillments">履约</button>
+          <div class="nav-group">商业</div>
+          <button class="nav-item" type="button" data-view="usage">用量</button>
+          <button class="nav-item" type="button" data-view="billing">订阅</button>
+          <div class="nav-group">系统</div>
+          <button class="nav-item" type="button" data-view="settings">设置</button>
+          <div class="nav-spacer"></div>
+          <button class="nav-item nav-item-assistant" type="button" data-action="open-assistant">AI 助手</button>
+        </nav>
+
+        <main class="workspace">
+          <section id="view-dashboard" class="view is-active" aria-labelledby="dashboard-title">
+            <header class="page-header">
+              <div>
+                <h1 id="dashboard-title">工作台</h1>
+                <p>先处理会影响店铺、上架和额度的事项。</p>
+              </div>
+            </header>
+            <div class="task-columns">
+              <section class="task-column" aria-labelledby="guide-title">
+                <h2 id="guide-title">开通引导</h2>
+                <article class="task-card severity-blocker">
+                  <div class="task-head"><strong>1. 连接 Temu 店铺</strong><span>阻塞</span></div>
+                  <p>授权后才能同步订单和履约状态。</p>
+                  <footer><button type="button" data-action="goto-view" data-target="store">去连接</button></footer>
+                </article>
+                <article class="task-card severity-info">
+                  <div class="task-head"><strong>2. 导入货盘</strong><span>可推进</span></div>
+                  <p>准备结构化商品、SKU、价格与资质信息。</p>
+                  <footer><button type="button" data-action="goto-view" data-target="sourcing">去导入</button></footer>
+                </article>
+                <article class="task-card severity-info">
+                  <div class="task-head"><strong>3. 完成首次选品</strong><span>可推进</span></div>
+                  <p>从货盘候选中决定哪些进入商品池。</p>
+                  <footer><button type="button" disabled>等待第 2 步</button></footer>
+                </article>
+              </section>
+              <section class="task-column" aria-labelledby="confirm-title">
+                <h2 id="confirm-title">需要我确认</h2>
+                <div class="empty-card">当前没有待确认事项。</div>
+              </section>
+              <section class="task-column" aria-labelledby="attention-title">
+                <h2 id="attention-title">异常与提醒</h2>
+                <div class="empty-card">当前没有履约或同步异常。</div>
+              </section>
+            </div>
+            <div class="module-grid">
+              <article class="status-card"><h2>店铺健康</h2><strong>未连接</strong><span>连接后显示授权与能力状态</span></article>
+              <article class="status-card"><h2>上架漏斗</h2><strong>0 → 0</strong><span>候选 → 商品 → 草稿 → 在售</span></article>
+              <article class="status-card"><h2>待处理任务</h2><strong>0</strong><span>审批、发布与同步任务</span></article>
+              <article class="status-card"><h2>最近订单</h2><strong>0</strong><span>连接店铺后展示</span></article>
+              <article class="status-card"><h2>异常提醒</h2><strong>0</strong><span>履约与同步异常</span></article>
+              <article class="status-card"><h2>AI 用量摘要</h2><strong>0 / 50,000</strong><span>本期用量与剩余额度</span></article>
+            </div>
+          </section>
+
+          <section id="view-store" class="view" aria-labelledby="store-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="store-title">店铺</h1>
+                <p>管理 Temu 店铺连接和平台能力。</p>
+              </div>
+            </header>
+            <div class="settings-grid">
+              <article class="panel">
+                <h2>店铺连接</h2>
+                <dl>
+                  <div><dt>平台</dt><dd>Temu</dd></div>
+                  <div><dt>模式</dt><dd>半托管</dd></div>
+                  <div><dt>授权状态</dt><dd>NotConnected</dd></div>
+                  <div><dt>同步健康</dt><dd>Idle</dd></div>
+                </dl>
+                <div class="actions"><button type="button" disabled>开始授权（等待开放资质）</button></div>
+              </article>
+              <article class="panel">
+                <h2>平台能力</h2>
+                <ul class="capability-list">
+                  <li><span>店铺信息</span><em>待确认</em></li>
+                  <li><span>商品 / 类目</span><em>待确认</em></li>
+                  <li><span>上架</span><em>待确认</em></li>
+                  <li><span>订单 / 履约</span><em>待确认</em></li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="view-sourcing" class="view" aria-labelledby="sourcing-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="sourcing-title">货盘</h1>
+                <p>管理货盘来源和候选商品。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>还没有货盘数据</h2>
+              <p>结构化导入（CSV / XLSX）将在数据层接入后启用。</p>
+              <div class="actions"><button type="button" disabled>选择文件</button></div>
+            </div>
+          </section>
+
+          <section id="view-selection" class="view" aria-labelledby="selection-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="selection-title">选品</h1>
+                <p>判断货盘商品是否进入经营商品池。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>暂无可选候选</h2>
+              <p>先在「货盘」完成导入，这里会显示候选与选品记录。</p>
+              <div class="actions"><button type="button" data-action="goto-view" data-target="sourcing">去货盘</button></div>
+            </div>
+          </section>
+
+          <section id="view-products" class="view" aria-labelledby="products-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="products-title">商品</h1>
+                <p>管理 ToneClaw 商品主数据。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>还没有商品</h2>
+              <p>选品通过的候选会在这里创建为商品。</p>
+            </div>
+          </section>
+
+          <section id="view-images" class="view" aria-labelledby="images-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="images-title">图片</h1>
+                <p>管理商品图片和平台图片变体。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>还没有图片素材</h2>
+              <p>商品创建后可在此管理主图与平台变体。</p>
+            </div>
+          </section>
+
+          <section id="view-listings" class="view" aria-labelledby="listings-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="listings-title">Listing</h1>
+                <p>管理 Temu Listing 草稿和平台商品状态。</p>
+              </div>
+            </header>
+            <div class="status-grid">
+              <article class="status-card"><h2>待确认</h2><strong>0</strong></article>
+              <article class="status-card"><h2>提交中</h2><strong>0</strong></article>
+              <article class="status-card"><h2>平台审核中</h2><strong>0</strong></article>
+              <article class="status-card"><h2>已上架</h2><strong>0</strong></article>
+              <article class="status-card is-warning"><h2>需人工操作</h2><strong>0</strong></article>
+              <article class="status-card is-danger"><h2>失败 / 被拒</h2><strong>0</strong></article>
+            </div>
+            <div class="empty-panel">
+              <h2>还没有 Listing 草稿</h2>
+              <p>商品与图片补全后，从商品发起 Listing 创建。结果均为草稿，提交前需人工确认。</p>
+            </div>
+          </section>
+
+          <section id="view-publish-jobs" class="view" aria-labelledby="publish-jobs-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="publish-jobs-title">发布任务</h1>
+                <p>追踪平台上架任务和人工降级任务。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>还没有发布任务</h2>
+              <p>Listing 确认提交后会在这里跟踪进度；平台能力不足时显示人工通道。</p>
+            </div>
+          </section>
+
+          <section id="view-orders" class="view" aria-labelledby="orders-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="orders-title">订单</h1>
+                <p>查看 Temu 订单基础状态。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>店铺未连接</h2>
+              <p>连接 Temu 后，这里会显示订单基础状态。当前阶段不做自动发货。</p>
+            </div>
+          </section>
+
+          <section id="view-fulfillments" class="view" aria-labelledby="fulfillments-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="fulfillments-title">履约</h1>
+                <p>查看履约 / 发货状态和异常。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>暂无履约记录</h2>
+              <p>订单产生后，这里显示采购单、支付会话与发货状态。</p>
+            </div>
+          </section>
+
+          <section id="view-usage" class="view" aria-labelledby="usage-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="usage-title">用量</h1>
+                <p>展示 AI / Token 用量和剩余额度。</p>
+              </div>
+            </header>
+            <article class="panel">
+              <h2>本期额度</h2>
+              <div class="usage-meter"><span class="is-zero"></span></div>
+              <p>0 / 50,000 Tokens · 超出额度后 AI 动作会被阻断。</p>
+            </article>
+            <div class="empty-panel">
+              <h2>还没有用量记录</h2>
+              <p>每次 AI 动作都会生成用量记录并关联业务对象。</p>
+            </div>
+          </section>
+
+          <section id="view-billing" class="view" aria-labelledby="billing-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="billing-title">订阅</h1>
+                <p>管理订阅、套餐和功能权益。</p>
+              </div>
+            </header>
+            <div class="empty-panel">
+              <h2>订阅管理即将上线</h2>
+              <p>当前版本默认基础套餐，功能权益随版本开放。</p>
+            </div>
+          </section>
+
+          <section id="view-settings" class="view" aria-labelledby="settings-title" hidden>
+            <header class="page-header">
+              <div>
+                <h1 id="settings-title">设置</h1>
+                <p>管理账号、偏好、安全和系统配置。</p>
+              </div>
+            </header>
+            <div class="settings-grid">
+              <article class="panel">
+                <h2>账号</h2>
+                <p>单卖家模式，绑定本机实例。</p>
+              </article>
+              <article class="panel">
+                <h2>偏好</h2>
+                <p>语言与主题跟随系统。</p>
+              </article>
+              <article class="panel">
+                <h2>数据与备份</h2>
+                <p>数据保存在本机；云备份暂不可用，请定期导出。</p>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
