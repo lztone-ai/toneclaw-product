@@ -234,6 +234,7 @@
       setSelectionNotice("请先填写选品理由。", "error");
       return;
     }
+    const decisionValues = { approve: "approved", reject: "rejected", observe: "observing" };
     button.disabled = true;
     setSelectionNotice("正在保存决策…");
     try {
@@ -244,7 +245,7 @@
         await postProductCommand("/selection/reopen", { sourcingItemId: itemId, reason });
         setSelectionNotice("选品已重开为候选。", "success");
       } else {
-        await postProductCommand("/selection/decisions", { sourcingItemId: itemId, decision: action, reason });
+        await postProductCommand("/selection/decisions", { sourcingItemId: itemId, decision: decisionValues[action], reason });
         setSelectionNotice("选品决策已保存。", "success");
       }
       await refreshSourcing();
