@@ -39,6 +39,56 @@ describe('product import host', () => {
     host.close()
   })
 
+  it('runs selection and product creation through the local command API', async () => {
+    const host = new ProductImportHost({}, config)
+    host.startCommandServer()
+    const csv = readFileSync(join(__dirname, '../../sourcing-provider/fixtures/valid-minimal.csv'))
+    writeFileSync(join(config.importDir, 'catalog.csv'), csv)
+    await host.scanNow()
+
+    let snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+    for (let attempt = 0; snapshot.commands === undefined && attempt < 50; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20))
+      snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+    }
+    expect(snapshot.commands?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/v1$/)
+    const itemId = snapshot.items[0].id
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${snapshot.commands.token}`,
+      Origin: 'dsh-app://product-ui',
+    }
+    const approved = await fetch(`${snapshot.commands.baseUrl}/selection/decisions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sourcingItemId: itemId, decision: 'approved', reason: 'margin passes P0 gate' }),
+    })
+    expect(approved.status).toBe(200)
+    snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+    expect(snapshot.items[0].status).toBe('selected')
+    expect(snapshot.items[0].decision).toBe('approved')
+
+    const unauthorized = await fetch(`${snapshot.commands.baseUrl}/selection/decisions`, {
+      method: 'POST',
+      headers: { ...headers, Authorization: 'Bearer wrong' },
+      body: JSON.stringify({ sourcingItemId: itemId, decision: 'observing', reason: 'retry' }),
+    })
+    expect(unauthorized.status).toBe(401)
+
+    const created = await fetch(`${snapshot.commands.baseUrl}/products/from-selection`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sourcingItemId: itemId }),
+    })
+    expect(created.status).toBe(200)
+    snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+    expect(snapshot.items[0].productCreated).toBe(true)
+    expect(snapshot.products).toHaveLength(1)
+    expect(snapshot.products[0].sourcingItemId).toBe(itemId)
+    expect(snapshot.products[0].purchasePriceMinor).toBe(snapshot.items[0].purchasePriceMinor)
+    host.close()
+  })
+
   it('rejects a header mismatch, archives it under failed, and records the batch', async () => {
     const host = new ProductImportHost({}, config)
     writeFileSync(join(config.importDir, 'bad.csv'), 'wrong,header\nA,B')

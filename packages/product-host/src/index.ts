@@ -1,8 +1,15 @@
 /** Cordis plugin entry: assemble local product storage and run the S2 import watcher. */
 import { mkdirSync, watch, type FSWatcher } from 'node:fs'
 import { copyFile, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import {
+  createProductFromSelection,
+  decide,
+  reopenSelection,
+  type SelectionDeps,
+} from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
 import type { IdGenerator } from '@toneclaw/core-domain'
 import {
@@ -20,6 +27,8 @@ export const name = 'product-host'
 export const inject: string[] = []
 export { normalizeProductHostConfig, writeSourcingSnapshot }
 export type { ProductHostConfig }
+const PRODUCT_UI_ORIGIN = 'dsh-app://product-ui'
+const MAX_COMMAND_BYTES = 64 * 1024
 
 export interface ProductHostContext {
   logger?: {
@@ -48,7 +57,10 @@ export function apply(ctx: ProductHostContext, config: unknown): () => void {
 
 export class ProductImportHost {
   private readonly storage: ProductStorage
+  private readonly commandToken = randomUUID()
   private watcher: FSWatcher | null = null
+  private commandServer: Server | null = null
+  private commandBaseUrl: string | null = null
   private pollTimer: NodeJS.Timeout | null = null
   private queue: Promise<unknown> = Promise.resolve()
   private closed = false
@@ -65,6 +77,7 @@ export class ProductImportHost {
   }
 
   start(): void {
+    this.startCommandServer()
     void this.scanNow()
     try {
       this.watcher = watch(this.config.importDir, { persistent: true, recursive: false }, () => {
@@ -81,8 +94,32 @@ export class ProductImportHost {
     if (this.closed) return
     this.closed = true
     this.watcher?.close()
+    this.commandServer?.close()
     if (this.pollTimer !== null) clearInterval(this.pollTimer)
     this.storage.close()
+  }
+
+  /** Start a loopback-only command endpoint; the token is published only in the local snapshot. */
+  startCommandServer(): void {
+    if (this.commandServer !== null || this.closed) return
+    const server = createServer((request, response) => {
+      void this.handleCommandRequest(request, response).catch(error => {
+        this.context.logger?.error?.('[product-host] command failed', error)
+        if (!response.headersSent) sendCommandJson(response, 500, { error: 'internal command failure' })
+        else response.end()
+      })
+    })
+    server.on('error', error => {
+      this.context.logger?.error?.('[product-host] command server failed', error)
+    })
+    server.listen({ host: '127.0.0.1', port: 0 }, () => {
+      const address = server.address()
+      if (typeof address === 'object' && address !== null) {
+        this.commandBaseUrl = `http://127.0.0.1:${String(address.port)}/api/v1`
+        void this.writeSnapshot()
+      }
+    })
+    this.commandServer = server
   }
 
   enqueueScan(): void {
@@ -183,11 +220,106 @@ export class ProductImportHost {
   }
 
   private writeSnapshot(): Promise<string> {
-    return writeSourcingSnapshot(this.config.dataDir, this.storage, this.config.workspaceId)
+    return writeSourcingSnapshot(
+      this.config.dataDir,
+      this.storage,
+      this.config.workspaceId,
+      this.commandBaseUrl === null ? undefined : { baseUrl: this.commandBaseUrl, token: this.commandToken },
+    )
+  }
+
+  private selectionDeps(): SelectionDeps {
+    return {
+      ids: new UuidGenerator(),
+      clock: { now: () => new Date() },
+      audit: this.storage.audit,
+      items: this.storage.sourcingItems,
+      decisions: this.storage.decisions,
+      products: this.storage.products,
+    }
+  }
+
+  private async handleCommandRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const origin = request.headers.origin
+    if (origin !== undefined && origin !== PRODUCT_UI_ORIGIN && origin !== 'null') {
+      sendCommandJson(response, 403, { error: 'origin not allowed' })
+      return
+    }
+    response.setHeader('Access-Control-Allow-Origin', origin === 'null' || origin === undefined ? '*' : origin)
+    response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    if (request.method === 'OPTIONS') {
+      response.statusCode = 204
+      response.end()
+      return
+    }
+    if (request.method !== 'POST') {
+      sendCommandJson(response, 405, { error: 'method not allowed' })
+      return
+    }
+    if (request.headers.authorization !== `Bearer ${this.commandToken}`) {
+      sendCommandJson(response, 401, { error: 'command token missing or invalid' })
+      return
+    }
+    const contentLength = Number(request.headers['content-length'] ?? '0')
+    if (!Number.isSafeInteger(contentLength) || contentLength < 0 || contentLength > MAX_COMMAND_BYTES) {
+      sendCommandJson(response, 413, { error: 'command body too large' })
+      return
+    }
+    const body = await readCommandBody(request)
+    let input: Record<string, unknown>
+    try {
+      input = JSON.parse(body) as Record<string, unknown>
+    } catch {
+      sendCommandJson(response, 400, { error: 'invalid command JSON' })
+      return
+    }
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+    try {
+      if (url.pathname === '/api/v1/selection/decisions') {
+        const result = await decide(this.selectionDeps(), {
+          workspaceId: this.config.workspaceId,
+          sourcingItemId: requireString(input['sourcingItemId'], 'sourcingItemId'),
+          decision: requireDecision(input['decision']),
+          reason: requireString(input['reason'], 'reason'),
+          decidedBy: 'user',
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, { itemId: result.item.id, status: result.item.status })
+        return
+      }
+      if (url.pathname === '/api/v1/selection/reopen') {
+        const item = await reopenSelection(this.selectionDeps(), {
+          workspaceId: this.config.workspaceId,
+          sourcingItemId: requireString(input['sourcingItemId'], 'sourcingItemId'),
+          actorId: this.config.createdBy,
+          reason: requireString(input['reason'], 'reason'),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, { itemId: item.id, status: item.status })
+        return
+      }
+      if (url.pathname === '/api/v1/products/from-selection') {
+        const result = await createProductFromSelection(this.selectionDeps(), {
+          workspaceId: this.config.workspaceId,
+          sourcingItemId: requireString(input['sourcingItemId'], 'sourcingItemId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, result)
+        return
+      }
+      sendCommandJson(response, 404, { error: 'command not found' })
+    } catch (error) {
+      sendCommandJson(response, 400, { error: error instanceof Error ? error.message : 'command rejected' })
+    }
   }
 
   productApi() {
     return {
+      listSourcingItemViews: async (workspaceId = this.config.workspaceId) =>
+        this.storage.listSourcingItemViews(workspaceId),
       listSourcingItems: async (workspaceId = this.config.workspaceId) =>
         this.storage.listSourcingItems(workspaceId),
       listImportBatches: async (workspaceId = this.config.workspaceId, limit = 50) =>
@@ -195,8 +327,70 @@ export class ProductImportHost {
       auditEvents: async (workspaceId = this.config.workspaceId, limit = 100) =>
         this.storage.auditEvents(workspaceId, limit),
       scanNow: async () => { await this.scanNow() },
+      decide: async (input: {
+        sourcingItemId: string
+        decision: 'approved' | 'rejected' | 'observing'
+        reason: string
+      }) => {
+        const result = await decide(this.selectionDeps(), {
+          ...input,
+          workspaceId: this.config.workspaceId,
+          decidedBy: 'user',
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      reopenSelection: async (input: { sourcingItemId: string; reason: string }) => {
+        const item = await reopenSelection(this.selectionDeps(), {
+          ...input,
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return item
+      },
+      createProductFromSelection: async (input: { sourcingItemId: string }) => {
+        const result = await createProductFromSelection(this.selectionDeps(), {
+          ...input,
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
     }
   }
+}
+
+async function readCommandBody(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  let bytes = 0
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string)
+    bytes += buffer.byteLength
+    if (bytes > MAX_COMMAND_BYTES) throw new Error('command body too large')
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function requireString(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`)
+  return value
+}
+
+function requireDecision(value: unknown): 'approved' | 'rejected' | 'observing' {
+  if (value !== 'approved' && value !== 'rejected' && value !== 'observing') {
+    throw new Error('decision must be approved, rejected, or observing')
+  }
+  return value
+}
+
+function sendCommandJson(response: ServerResponse, status: number, body: unknown): void {
+  response.statusCode = status
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+  response.end(JSON.stringify(body))
 }
 
 function toReport(

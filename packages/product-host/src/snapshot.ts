@@ -17,6 +17,14 @@ export interface SourcingSnapshotItem {
   categoryLabels: string[]
   imageUrls: string[]
   updatedAt: string
+  decision: 'approved' | 'rejected' | 'observing' | null
+  decisionReason: string | null
+  productCreated: boolean
+}
+
+export interface SourcingCommandEndpoint {
+  baseUrl: string
+  token: string
 }
 
 export interface SourcingSnapshot {
@@ -24,6 +32,7 @@ export interface SourcingSnapshot {
   generatedAt: string
   workspaceId: string
   summary: { totalItems: number; candidateItems: number; batches: number; failedBatches: number }
+  commands?: SourcingCommandEndpoint
   items: SourcingSnapshotItem[]
   batches: {
     id: string
@@ -35,41 +44,59 @@ export interface SourcingSnapshot {
     warningRows: number
     createdAt: string
   }[]
+  products: {
+    id: string
+    title: string
+    status: string
+    riskStatus: string
+    currency: string
+    purchasePriceMinor: number | null
+    sourcingItemId: string | null
+    createdFromSelectionId: string | null
+    createdAt: string
+  }[]
 }
 
 export function writeSourcingSnapshot(
   dataDir: string,
   storage: ProductStorage,
   workspaceId: string,
+  commandEndpoint?: SourcingCommandEndpoint,
 ): Promise<string> {
-  const allItems = storage.listSourcingItems(workspaceId)
-  const items = allItems.slice(0, 500)
+  const views = storage.listSourcingItemViews(workspaceId)
+  const allItems = views.map(view => view.item)
+  const visibleViews = views.slice(0, 500)
   return storage.importBatches.list(workspaceId, 50).then((batches) => {
+    const products = storage.listProductViews(workspaceId)
     const snapshot: SourcingSnapshot = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       workspaceId,
       summary: {
         totalItems: allItems.length,
-        candidateItems: items.filter(item => item.status === 'candidate').length,
+        candidateItems: visibleViews.filter(view => view.item.status === 'candidate').length,
         batches: batches.length,
         failedBatches: batches.filter(batch => batch.status === 'failed').length,
       },
-      items: items.map(item => ({
-        id: item.id,
-        externalSourceId: item.externalSourceId,
-        title: item.title,
-        status: item.status,
-        currency: item.currency,
-        purchasePriceMinor: item.purchasePriceMinor,
-        suggestedRetailPriceMinor: item.suggestedRetailPriceMinor,
-        moq: item.moq,
-        leadTimeDays: item.leadTimeDays,
-        stockStatus: item.stockStatus,
-        riskStatus: item.riskStatus,
-        categoryLabels: item.categoryLabels,
-        imageUrls: item.imageUrls,
-        updatedAt: item.updatedAt,
+      ...(commandEndpoint === undefined ? {} : { commands: commandEndpoint }),
+      items: visibleViews.map(view => ({
+        id: view.item.id,
+        externalSourceId: view.item.externalSourceId,
+        title: view.item.title,
+        status: view.item.status,
+        currency: view.item.currency,
+        purchasePriceMinor: view.item.purchasePriceMinor,
+        suggestedRetailPriceMinor: view.item.suggestedRetailPriceMinor,
+        moq: view.item.moq,
+        leadTimeDays: view.item.leadTimeDays,
+        stockStatus: view.item.stockStatus,
+        riskStatus: view.item.riskStatus,
+        categoryLabels: view.item.categoryLabels,
+        imageUrls: view.item.imageUrls,
+        updatedAt: view.item.updatedAt,
+        decision: view.decision?.decision ?? null,
+        decisionReason: view.decision?.reason ?? null,
+        productCreated: view.productCreated,
       })),
       batches: batches.map(batch => ({
         id: batch.id,
@@ -80,6 +107,17 @@ export function writeSourcingSnapshot(
         failedRows: batch.failedRows,
         warningRows: batch.warningRows,
         createdAt: batch.createdAt,
+      })),
+      products: products.map(({ product, purchasePriceMinor }) => ({
+        id: product.id,
+        title: product.title,
+        status: product.status,
+        riskStatus: product.riskStatus,
+        currency: product.currency,
+        purchasePriceMinor,
+        sourcingItemId: product.sourcingItemId,
+        createdFromSelectionId: product.createdFromSelectionId,
+        createdAt: product.createdAt,
       })),
     }
     const path = join(dataDir, 'sourcing.json')

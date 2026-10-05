@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' http://127.0.0.1:*; base-uri 'none'; form-action 'none'">
     <title>ToneClaw 工作台</title>
     <link rel="stylesheet" href="./styles.css">
     <script src="./app.js" defer></script>
@@ -131,10 +131,24 @@
                 <p>判断货盘商品是否进入经营商品池。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>暂无可选候选</h2>
-              <p>先在「货盘」完成导入，这里会显示候选与选品记录。</p>
-              <div class="actions"><button type="button" data-action="goto-view" data-target="sourcing">去货盘</button></div>
+            <section class="panel filter-panel" aria-labelledby="filter-title">
+              <h2 id="filter-title">规则筛选</h2>
+              <div class="filter-grid">
+                <label>类目<input id="filter-category" type="text" placeholder="例如：厨房"></label>
+                <label>最低供货价<input id="filter-price-min" type="number" min="0" step="0.01"></label>
+                <label>最高供货价<input id="filter-price-max" type="number" min="0" step="0.01"></label>
+                <label>最低毛利 %<input id="filter-margin" type="number" min="0" max="100" step="1"></label>
+                <label>最大 MOQ<input id="filter-moq" type="number" min="0" step="1"></label>
+                <label>最大时效 / 天<input id="filter-lead-time" type="number" min="0" step="1"></label>
+              </div>
+              <div class="actions">
+                <button id="apply-filters" type="button">应用筛选</button>
+                <button id="reset-filters" type="button">重置</button>
+              </div>
+            </section>
+            <div id="selection-notice" class="notice" aria-live="polite"></div>
+            <div id="selection-live" aria-live="polite">
+              <div class="empty-panel"><h2>正在读取候选</h2><p>先在「货盘」完成导入，这里会显示候选与选品动作。</p></div>
             </div>
           </section>
 
@@ -145,9 +159,8 @@
                 <p>管理 ToneClaw 商品主数据。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>还没有商品</h2>
-              <p>选品通过的候选会在这里创建为商品。</p>
+            <div id="products-live" aria-live="polite">
+              <div class="empty-panel"><h2>正在读取商品</h2><p>选品通过的候选会在这里创建为商品。</p></div>
             </div>
           </section>
 

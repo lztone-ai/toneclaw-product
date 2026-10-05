@@ -350,6 +350,38 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   font-size: 12px;
 }
 
+.filter-panel { margin-bottom: 16px; }
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.filter-grid label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.filter-grid input,
+.decision-reason {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+.decision-reason { min-width: 180px; margin-right: 8px; }
+.decision-form { display: flex; align-items: center; justify-content: flex-start; gap: 4px; white-space: nowrap; }
+.notice {
+  min-height: 0;
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+.notice.is-error { color: var(--danger); }
+.notice.is-success { color: var(--brand); }
+
 @media (max-width: 1000px) {
   .task-columns, .module-grid, .status-grid, .settings-grid, .overview-strip { grid-template-columns: 1fr; }
   .overview-strip { display: grid; }

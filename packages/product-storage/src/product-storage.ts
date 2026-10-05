@@ -7,6 +7,7 @@ import type {
   CategoryRepository,
   DataSource,
   DataSourceRepository,
+  Product,
   ProductRepository,
   SelectionDecision,
   SelectionDecisionRepository,
@@ -166,6 +167,17 @@ export interface SourcingImportWritePlan {
   sourceRecords: SourceRecord[]
   media: SourcingItemMedia[]
   qualifications: SourcingItemQualification[]
+}
+
+export interface SourcingItemView {
+  item: SourcingItem
+  decision: SelectionDecision | null
+  productCreated: boolean
+}
+
+export interface ProductView {
+  product: Product
+  purchasePriceMinor: number | null
 }
 
 function mapItem(row: SourcingItemRow): SourcingItem {
@@ -857,6 +869,59 @@ export class ProductStorage {
 
   listSourcingItems(workspaceId: string): SourcingItem[] {
     return this.itemRows(`WHERE business_account_id = ? ORDER BY updated_at DESC`, [workspaceId]).map(mapItem)
+  }
+
+  /** Joined read model for the selection workbench (commands still go through the domain). */
+  listSourcingItemViews(workspaceId: string): SourcingItemView[] {
+    const items = this.listSourcingItems(workspaceId)
+    const decisionRows = this.db.prepare(`
+      SELECT * FROM selection_decisions
+      WHERE business_account_id = ? AND status = 'active'
+      ORDER BY decided_at DESC, id DESC
+    `).all(workspaceId) as unknown as DecisionRow[]
+    const decisions = new Map<string, SelectionDecision>()
+    for (const row of decisionRows) {
+      const decision = mapDecision(row)
+      if (!decisions.has(decision.sourcingItemId)) decisions.set(decision.sourcingItemId, decision)
+    }
+    const productRows = this.db.prepare(`
+      SELECT DISTINCT sourcing_item_id FROM products WHERE business_account_id = ?
+    `).all(workspaceId) as unknown as { sourcing_item_id: string }[]
+    const productsByItem = new Set(productRows.map(row => row.sourcing_item_id))
+    return items.map(item => ({
+      item,
+      decision: decisions.get(item.id) ?? null,
+      productCreated: productsByItem.has(item.id),
+    }))
+  }
+
+  listProductViews(workspaceId: string): ProductView[] {
+    const productRows = this.db.prepare(`
+      SELECT * FROM products WHERE business_account_id = ? ORDER BY created_at DESC, id DESC
+    `).all(workspaceId) as unknown as Record<string, unknown>[]
+    const variantRows = this.db.prepare(`
+      SELECT product_id, purchase_price_minor FROM product_variants ORDER BY id
+    `).all() as unknown as { product_id: string; purchase_price_minor: number }[]
+    const costs = new Map<string, number>()
+    for (const row of variantRows) {
+      if (!costs.has(row.product_id)) costs.set(row.product_id, row.purchase_price_minor)
+    }
+    return productRows.map(row => ({
+      product: {
+        id: String(row['id']),
+        businessAccountId: String(row['business_account_id']),
+        sourcingItemId: row['sourcing_item_id'] === null ? null : String(row['sourcing_item_id']),
+        createdFromSelectionId: row['created_from_selection_id'] === null ? null : String(row['created_from_selection_id']),
+        title: String(row['title']),
+        coreCategoryId: String(row['core_category_id']),
+        currency: String(row['currency']),
+        riskStatus: row['risk_status'] as Product['riskStatus'],
+        status: row['status'] as Product['status'],
+        createdAt: String(row['created_at']),
+        updatedAt: String(row['updated_at']),
+      },
+      purchasePriceMinor: costs.get(String(row['id'])) ?? null,
+    }))
   }
 
   auditEvents(workspaceId: string, limit = 100): AuditEvent[] {
