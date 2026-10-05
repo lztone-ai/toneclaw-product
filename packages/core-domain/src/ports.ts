@@ -16,6 +16,7 @@ export interface SelectionDecisionRepository {
 export interface ProductRepository {
   insert(product: {
     id: string
+    businessAccountId: string
     title: string
     coreCategoryId: string
     currency: string

@@ -177,6 +177,7 @@ export async function createProductFromSelection(
   const productId = deps.ids.next()
   const product = {
     id: productId,
+    businessAccountId: input.workspaceId,
     title: item.title,
     coreCategoryId: input.coreCategoryId ?? UNCATEGORIZED_CORE_CATEGORY_ID,
     currency: item.currency,
