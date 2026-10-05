@@ -13,6 +13,8 @@ import type {
   Subscription,
   SubscriptionDecision,
   SubscriptionStatus,
+  AuditEvent,
+  AuditActorType,
   UsageRecord,
   UsageScene,
   UsageStatus,
@@ -37,6 +39,8 @@ export interface AuthorityOptions {
   plan?: PlanDefinition
   userId?: string
   deviceId?: string
+  actorType?: AuditActorType
+  actorId?: string
 }
 
 interface QuotaRow {
@@ -138,12 +142,16 @@ export class LocalBillingAuthority {
   private readonly plan: PlanDefinition
   private readonly userId: string
   private readonly deviceId: string
+  private readonly actorType: AuditActorType
+  private readonly actorId: string
 
   constructor(private readonly store: BillingStore, options: AuthorityOptions = {}) {
     this.now = options.now ?? (() => new Date())
     this.plan = options.plan ?? DEFAULT_PLAN
     this.userId = options.userId ?? 'user-local'
     this.deviceId = options.deviceId ?? 'device-local'
+    this.actorType = options.actorType ?? 'system'
+    this.actorId = options.actorId ?? 'billing-local'
   }
 
   currentSubscription(workspaceId: string): SubscriptionDecision {
@@ -226,6 +234,14 @@ export class LocalBillingAuthority {
         record.completedAt, record.auditRef,
       )
       this.applyQuotaDelta(quota.workspaceId, record.reservedInputTokens, record.reservedOutputTokens, 1)
+      this.appendAudit({
+        workspaceId: record.workspaceId, action: 'usage.reserve', objectType: 'UsageRecord', objectId: record.id,
+        after: {
+          scene: record.scene,
+          model: record.model,
+          reserved: record.reservedInputTokens + record.reservedOutputTokens,
+        },
+      })
     })
     return { reservationId: record.id, idempotencyKey: record.idempotencyKey, deduplicated: false }
   }
@@ -246,6 +262,11 @@ export class LocalBillingAuthority {
       const deltaInput = usage.inputTokens - record.reservedInputTokens
       const deltaOutput = usage.outputTokens - record.reservedOutputTokens
       this.applyQuotaDelta(record.workspaceId, deltaInput, deltaOutput, 0)
+      this.appendAudit({
+        workspaceId: record.workspaceId, action: 'usage.commit', objectType: 'UsageRecord', objectId: reservationId,
+        before: { status: 'Reserved', reserved: record.reservedInputTokens + record.reservedOutputTokens },
+        after: { status: 'Succeeded', actual: usage.inputTokens + usage.outputTokens },
+      })
     })
     return this.getUsage(reservationId)
   }
@@ -258,6 +279,12 @@ export class LocalBillingAuthority {
         UPDATE usage_records SET status = ?, failure = ?, completed_at = ? WHERE id = ?
       `).run(status, reason, this.now().toISOString(), reservationId)
       this.applyQuotaDelta(record.workspaceId, -record.reservedInputTokens, -record.reservedOutputTokens, 0)
+      this.appendAudit({
+        workspaceId: record.workspaceId, action: `usage.${status.toLowerCase()}`, objectType: 'UsageRecord', objectId: reservationId,
+        before: { status: 'Reserved', reserved: record.reservedInputTokens + record.reservedOutputTokens },
+        after: { status },
+        reason,
+      })
     })
     return this.getUsage(reservationId)
   }
@@ -286,6 +313,50 @@ export class LocalBillingAuthority {
       SELECT * FROM usage_records WHERE workspace_id = ? ORDER BY created_at DESC
     `).all(workspaceId) as unknown as UsageRow[]
     return rows.map(rowToUsage)
+  }
+
+  auditEvents(workspaceId: string, limit = 100): AuditEvent[] {
+    const rows = this.store.prepare(`
+      SELECT * FROM audit_events WHERE workspace_id = ? ORDER BY occurred_at DESC, id DESC LIMIT ?
+    `).all(workspaceId, limit) as unknown as AuditEvent[]
+    return rows
+  }
+
+  /** Append an audit event; participates in any open store transaction. */
+  private appendAudit(input: {
+    workspaceId: string
+    action: string
+    objectType: string
+    objectId: string
+    before?: unknown
+    after?: unknown
+    reason?: string
+  }): void {
+    const event: AuditEvent = {
+      id: randomUUID(),
+      workspaceId: input.workspaceId,
+      actorType: this.actorType,
+      actorId: this.actorId,
+      action: input.action,
+      objectType: input.objectType,
+      objectId: input.objectId,
+      before: input.before === undefined ? null : JSON.stringify(input.before),
+      after: input.after === undefined ? null : JSON.stringify(input.after),
+      reason: input.reason ?? null,
+      source: 'billing-local',
+      occurredAt: this.now().toISOString(),
+      traceId: null,
+    }
+    this.store.prepare(`
+      INSERT INTO audit_events (
+        id, workspace_id, actor_type, actor_id, action, object_type, object_id,
+        before, after, reason, source, occurred_at, trace_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.id, event.workspaceId, event.actorType, event.actorId, event.action,
+      event.objectType, event.objectId, event.before, event.after, event.reason,
+      event.source, event.occurredAt, event.traceId,
+    )
   }
 
   private ensureSubscription(workspaceId: string): Subscription {
@@ -320,6 +391,11 @@ export class LocalBillingAuthority {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(subscription.id, subscription.workspaceId, subscription.planId, subscription.status,
       subscription.validFrom, subscription.validTo, subscription.lastValidatedAt, subscription.updatedAt)
+    this.appendAudit({
+      workspaceId, action: 'subscription.create', objectType: 'Subscription', objectId: subscription.id,
+      after: { planId: subscription.planId, status: subscription.status },
+      reason: 'default local plan provisioning',
+    })
     return subscription
   }
 
@@ -336,6 +412,10 @@ export class LocalBillingAuthority {
       UPDATE quotas SET status = 'Expired', updated_at = ?
       WHERE workspace_id = ? AND period_end <= ? AND status != 'Expired'
     `).run(nowIso, workspaceId, periodStart)
+    this.appendAudit({
+      workspaceId, action: 'quota.expire', objectType: 'Quota', objectId: periodStart,
+      after: { status: 'Expired' }, reason: 'period elapsed',
+    })
     const quota: Quota = {
       id: randomUUID(),
       workspaceId,
@@ -359,6 +439,10 @@ export class LocalBillingAuthority {
     `).run(quota.id, quota.workspaceId, quota.subscriptionId, quota.periodType, quota.periodStart,
       quota.periodEnd, quota.tokenLimit, quota.usedInputTokens, quota.usedOutputTokens,
       quota.requestLimit, quota.usedRequests, quota.status, quota.updatedAt)
+    this.appendAudit({
+      workspaceId, action: 'quota.create', objectType: 'Quota', objectId: quota.id,
+      after: { periodStart: quota.periodStart, periodEnd: quota.periodEnd, tokenLimit: quota.tokenLimit },
+    })
     return quota
   }
 

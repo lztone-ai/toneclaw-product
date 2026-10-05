@@ -60,6 +60,22 @@ export class BillingStore {
         audit_ref TEXT
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_idempotency ON usage_records(workspace_id, idempotency_key);
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        object_type TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        before TEXT,
+        after TEXT,
+        reason TEXT,
+        source TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        trace_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_workspace ON audit_events(workspace_id, occurred_at);
     `)
   }
 

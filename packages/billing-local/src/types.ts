@@ -124,3 +124,22 @@ export interface FeatureDecision {
   featureKey: string
   allowed: boolean
 }
+
+export type AuditActorType = 'system' | 'user' | 'ai'
+
+/** Audit trail per PHASE1_TECH_DESIGN 4.10 (workspace-scoped for the local authority). */
+export interface AuditEvent {
+  id: string
+  workspaceId: string
+  actorType: AuditActorType
+  actorId: string
+  action: string
+  objectType: string
+  objectId: string
+  before: string | null
+  after: string | null
+  reason: string | null
+  source: string
+  occurredAt: string
+  traceId: string | null
+}

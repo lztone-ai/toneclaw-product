@@ -3,9 +3,7 @@
 
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { BillingStore } from '@toneclaw/billing-local'
-import { LocalBillingAuthority } from '@toneclaw/billing-local'
-import { writeUsageSnapshot } from '@toneclaw/billing-local'
+import { BillingStore, LocalBillingAuthority, writeUsageSnapshot, writeExportBundle } from '@toneclaw/billing-local'
 import { normalizeBillingHostConfig, type BillingHostConfig } from './config.ts'
 
 export const name = 'billing-host'
@@ -23,6 +21,8 @@ export interface BillingHostContext {
     error?: (message: unknown, ...values: unknown[]) => void
   }
   on?: (event: string, listener: (...args: unknown[]) => void) => void
+  /** Product tools (S2+) consume the local authority through this service slot. */
+  billingAuthority?: unknown
 }
 
 function startBillingHost(ctx: BillingHostContext, config: BillingHostConfig): () => void {
@@ -31,8 +31,12 @@ function startBillingHost(ctx: BillingHostContext, config: BillingHostConfig): (
   const store = new BillingStore(config.dbPath)
   const authority = new LocalBillingAuthority(store)
   const snapshotPath = writeUsageSnapshot(config.dataDir, authority, config.workspaceId)
+  // Rolling local backup: the export bundle is the no-cloud-backup fallback (S1 导出兜底).
+  const backupPath = writeExportBundle(authority, config.workspaceId, join(config.dataDir, 'export-latest.json'))
+  ;(ctx as { billingAuthority?: unknown }).billingAuthority = authority
   ctx.logger?.info?.(`[billing-host] authority ready; snapshot ${snapshotPath}`)
   let closed = false
+  void backupPath
   return () => {
     if (closed) return
     closed = true
