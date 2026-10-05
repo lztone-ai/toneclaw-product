@@ -1,0 +1,5 @@
+sourceId,supplierName,supplierUrl,title,description,categoryCandidate,costPrice,currency,moq,supplyAbility,imageUrls,skuAttributesJson,complianceJson,suggestedRetailPrice,stockQty,leadTimeDays
+SKU-BAD-001,Harbor Goods,https://harbor.example.com/a,Valid first row,Kept for partial success,Home,55.00,USD,1,200,https://img.example.com/a.jpg,,{},79.00,0,6
+SKU-BAD-002,Harbor Goods,https://harbor.example.com/b,Missing price,Rejected,Home,USD,1,200,https://img.example.com/b.jpg,,{},79.00,10,6
+SKU-BAD-003,Harbor Goods,https://harbor.example.com/c,Invalid SKU JSON,Rejected,Home,31.00,USD,1,200,https://img.example.com/c.jpg,"[{""sku"":""A""}",{},59.00,12,6
+SKU-BAD-001,Harbor Goods,https://harbor.example.com/d,Duplicate source ID,Rejected,Home,32.00,USD,1,200,https://img.example.com/d.jpg,,{},49.00,30,6

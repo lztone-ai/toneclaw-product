@@ -1,13 +1,14 @@
 /** Core domain objects per CORE_MODEL 5.1-5.7 / 7.1-7.2 (P0 field set, pure types only). */
 
 export type DataSourceType = 'manual' | 'excel' | 'csv' | 'json'
-export type DataSourceStatus = 'active' | 'disabled'
+export type DataSourceStatus = 'active' | 'disabled' | 'error'
 
 export interface DataSource {
   id: string
   businessAccountId: string
   type: DataSourceType
   name: string
+  configRef: string | null
   status: DataSourceStatus
   lastSyncedAt: string | null
 }
@@ -18,10 +19,16 @@ export interface Supplier {
   id: string
   businessAccountId: string
   name: string
+  nameNormalized: string
+  supplierUrl: string | null
   code: string | null
   country: string
+  contactName: string | null
+  contactChannel: string | null
   defaultCurrency: string
   status: SupplierStatus
+  rating: number | null
+  notes: string | null
 }
 
 export type StockStatus = 'available' | 'low' | 'out_of_stock' | 'unknown'
@@ -41,8 +48,10 @@ export interface SourcingItem {
   businessAccountId: string
   supplierId: string
   dataSourceId: string
+  sourceRecordId: string
   externalSourceId: string | null
   title: string
+  descriptionRaw: string | null
   categoryLabels: string[]
   currency: string
   purchasePriceMinor: number
@@ -75,6 +84,97 @@ export interface SelectionDecision {
   decidedAt: string
   status: SelectionDecisionStatus
   resultProductId: string | null
+}
+
+export type SourcingImportFormat = 'csv'
+export type SourcingImportBatchStatus =
+  | 'validating'
+  | 'completed'
+  | 'partially_completed'
+  | 'failed'
+  | 'canceled'
+
+export interface SourcingImportRowError {
+  rowIndex: number | null
+  errorCodes: string[]
+  reason: string
+  rawCsvLine: string | null
+}
+
+export interface SourcingImportBatch {
+  id: string
+  businessAccountId: string
+  storeId: null
+  format: SourcingImportFormat
+  fileName: string
+  fileRef: string
+  fingerprint: string
+  sourceBatchId: string | null
+  totalRows: number
+  validRows: number
+  failedRows: number
+  warningRows: number
+  status: SourcingImportBatchStatus
+  errors: SourcingImportRowError[]
+  createdAt: string
+  createdBy: string
+}
+
+export interface SourceRecord {
+  id: string
+  businessAccountId: string
+  dataSourceId: string
+  sourcingItemId: string
+  externalId: string | null
+  rawPayloadRef: string
+  checksum: string
+  importedAt: string
+}
+
+export type SourcingMediaType = 'image' | 'video' | 'document'
+export type SourcingMediaPurpose = 'main' | 'detail' | 'scene' | 'certificate' | 'other'
+export type SourcingMediaRightsStatus = 'unknown' | 'owned' | 'licensed' | 'restricted'
+export type SourcingMediaStatus = 'imported' | 'processing' | 'ready' | 'failed' | 'blocked' | 'archived'
+
+export interface SourcingItemMedia {
+  id: string
+  sourcingItemId: string
+  mediaType: SourcingMediaType
+  purpose: SourcingMediaPurpose
+  storageRef: string
+  sourceUrl: string | null
+  checksum: string
+  rightsStatus: SourcingMediaRightsStatus
+  status: SourcingMediaStatus
+}
+
+export type SourcingQualificationStatus =
+  | 'unknown'
+  | 'submitted'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+
+export interface SourcingItemQualification {
+  id: string
+  sourcingItemId: string
+  qualificationType: string
+  fileRef: string
+  status: SourcingQualificationStatus
+  issuedBy: string | null
+  issuedAt: string | null
+  expiresAt: string | null
+}
+
+export type CategoryStatus = 'active' | 'inactive'
+
+export interface Category {
+  id: string
+  parentId: string | null
+  name: string
+  path: string
+  level: number
+  status: CategoryStatus
 }
 
 export type ProductStatus = 'draft' | 'active' | 'paused' | 'archived'

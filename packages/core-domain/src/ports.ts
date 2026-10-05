@@ -1,9 +1,59 @@
 /** Repository ports: pure interfaces, implemented by infrastructure packages (product-storage). */
-import type { AuditEvent, SelectionDecision, SourcingItem } from './objects.ts'
+import type {
+  AuditEvent,
+  Category,
+  DataSource,
+  SourcingImportBatch,
+  SourcingItem,
+  SourcingItemMedia,
+  SourcingItemQualification,
+  SelectionDecision,
+  SourceRecord,
+  Supplier,
+} from './objects.ts'
 
 export interface SourcingItemRepository {
+  insert(item: SourcingItem): Promise<void>
   findById(workspaceId: string, id: string): Promise<SourcingItem | undefined>
   update(item: SourcingItem): Promise<void>
+}
+
+export interface DataSourceRepository {
+  insert(dataSource: DataSource): Promise<void>
+  updateStatus(workspaceId: string, id: string, status: DataSource['status']): Promise<void>
+}
+
+export interface SupplierRepository {
+  insert(supplier: Supplier): Promise<void>
+  findByNormalizedName(workspaceId: string, nameNormalized: string): Promise<Supplier | undefined>
+}
+
+export interface CategoryRepository {
+  ensureUncategorized(category: Category): Promise<void>
+}
+
+export interface SourcingImportBatchRepository {
+  insert(batch: SourcingImportBatch): Promise<void>
+  findById(workspaceId: string, id: string): Promise<SourcingImportBatch | undefined>
+  findByIdempotency(
+    workspaceId: string,
+    createdBy: string,
+    fingerprint: string,
+  ): Promise<SourcingImportBatch | undefined>
+  list(workspaceId: string, limit?: number): Promise<SourcingImportBatch[]>
+}
+
+export interface SourceRecordRepository {
+  insert(record: SourceRecord): Promise<void>
+  checksumExists(workspaceId: string, checksum: string): Promise<boolean>
+}
+
+export interface SourcingMediaRepository {
+  insertMany(media: SourcingItemMedia[]): Promise<void>
+}
+
+export interface SourcingQualificationRepository {
+  insertMany(qualifications: SourcingItemQualification[]): Promise<void>
 }
 
 export interface SelectionDecisionRepository {

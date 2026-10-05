@@ -116,10 +116,11 @@
                 <p>管理货盘来源和候选商品。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>还没有货盘数据</h2>
-              <p>结构化导入（CSV / XLSX）将在数据层接入后启用。</p>
-              <div class="actions"><button type="button" disabled>选择文件</button></div>
+            <div id="sourcing-live" aria-live="polite">
+              <div class="empty-panel">
+                <h2>正在读取货盘数据</h2>
+                <p>请确认本地导入目录已配置，并把运营维护的 CSV 文件放入根目录。</p>
+              </div>
             </div>
           </section>
 

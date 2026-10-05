@@ -319,6 +319,37 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .usage-bar::-webkit-progress-bar { background: var(--surface-muted); }
 .usage-bar::-webkit-progress-value { background: var(--brand); }
 
+.table-wrap { overflow-x: auto; }
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.table-wrap th { color: var(--muted); font-weight: 650; }
+.table-wrap td strong { display: block; font-weight: 650; }
+.table-wrap td small { display: block; margin-top: 3px; color: var(--muted); }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 @media (max-width: 1000px) {
   .task-columns, .module-grid, .status-grid, .settings-grid, .overview-strip { grid-template-columns: 1fr; }
   .overview-strip { display: grid; }

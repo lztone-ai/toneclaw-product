@@ -1,0 +1,3 @@
+sourceId,supplierName,supplierUrl,title,description,categoryCandidate,costPrice,currency,moq,supplyAbility,imageUrls,skuAttributesJson,complianceJson,suggestedRetailPrice,stockQty,leadTimeDays
+SKU-MIN-001,Coast Supply,https://supply.example.com/p/1,Linen storage box,Medium storage box,Home;Storage,67.00,USD,1,500,https://img.example.com/1.jpg;https://img.example.com/1.webp,,"{""cpsia"":""certificate-1""}",89.90,80,5
+SKU-MIN-002,Coast Supply,https://supply.example.com/p/2,Silicone bottle brush,Dishwasher safe,Kitchen,24.50,USD,2,1200,https://img.example.com/2.png,,"{""food_contact"":""FDA""}",39.00,8,7

@@ -10,11 +10,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const releaseDir = resolve(root, 'release')
 const transportSource = resolve(releaseDir, 'feishu-long-connection')
 const billingSource = resolve(releaseDir, 'billing-host')
+const productSource = resolve(releaseDir, 'product-host')
 const profileSource = resolve(releaseDir, 'profiles/desktop.patch.yml')
 const uiSource = resolve(root, 'packages/desktop-ui/dist')
 const resourcesDir = resolve(releaseDir, 'desktop-resources')
 const pluginDestination = resolve(resourcesDir, 'plugins/feishu-long-connection')
 const billingDestination = resolve(resourcesDir, 'plugins/billing-host')
+const productDestination = resolve(resourcesDir, 'plugins/product-host')
 const uiDestination = resolve(resourcesDir, 'ui')
 const profileDestination = resolve(resourcesDir, 'profiles/desktop.patch.yml')
 
@@ -53,6 +55,9 @@ if (!existsSync(transportSource)) {
 if (!existsSync(join(billingSource, 'dist/index.mjs'))) {
   throw new Error(`billing host build missing: ${billingSource}; run pnpm run package:transport`)
 }
+if (!existsSync(join(productSource, 'dist/index.mjs'))) {
+  throw new Error(`product host build missing: ${productSource}; run pnpm run package:transport`)
+}
 if (!existsSync(profileSource)) {
   throw new Error(`generated profile missing: ${profileSource}; run pnpm run package:transport`)
 }
@@ -63,6 +68,7 @@ if (!existsSync(join(uiSource, 'index.html'))) {
 rmSync(resourcesDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 cpSync(transportSource, pluginDestination, { recursive: true, dereference: true })
 cpSync(billingSource, billingDestination, { recursive: true, dereference: true })
+cpSync(productSource, productDestination, { recursive: true, dereference: true })
 cpSync(uiSource, uiDestination, { recursive: true, dereference: true })
 
 // Regenerate the profile for its final resource-relative location.
@@ -71,6 +77,7 @@ const generator = resolve(root, 'scripts/generate-profile.mjs')
 const generated = spawnSync(process.execPath, [generator,
   '--plugin', pluginEntrySource,
   '--billing-plugin', join(billingDestination, 'dist/index.mjs'),
+  '--product-plugin', join(productDestination, 'dist/index.mjs'),
   '--out', profileDestination,
 ], { stdio: 'inherit', windowsHide: true })
 if (generated.status !== 0) process.exit(generated.status ?? 1)
@@ -88,10 +95,16 @@ const billingModule = await import(pathToFileURL(billingEntrySource).href)
 if (billingModule.name !== 'billing-host' || !Array.isArray(billingModule.inject)) {
   throw new Error('composed billing plugin does not expose the expected Cordis entry shape')
 }
+const productEntrySource = join(productDestination, 'dist/index.mjs')
+const productModule = await import(pathToFileURL(productEntrySource).href)
+if (productModule.name !== 'product-host' || !Array.isArray(productModule.inject)) {
+  throw new Error('composed product plugin does not expose the expected Cordis entry shape')
+}
 
 const engineLock = JSON.parse(readFileSync(resolve(root, 'engine-lock.json'), 'utf8'))
 const transportManifest = JSON.parse(readFileSync(join(transportSource, 'package.json'), 'utf8'))
 const billingManifest = JSON.parse(readFileSync(join(billingSource, 'package.json'), 'utf8'))
+const productManifest = JSON.parse(readFileSync(join(productSource, 'package.json'), 'utf8'))
 const uiManifest = JSON.parse(readFileSync(resolve(root, 'packages/desktop-ui/package.json'), 'utf8'))
 const manifest = {
   schemaVersion: 1,
@@ -116,6 +129,12 @@ const manifest = {
       path: 'plugins/billing-host',
       entry: 'plugins/billing-host/dist/index.mjs',
     },
+    {
+      name: productManifest.name,
+      version: productManifest.version,
+      path: 'plugins/product-host',
+      entry: 'plugins/product-host/dist/index.mjs',
+    },
   ],
   profiles: [{
     id: 'desktop',
@@ -124,11 +143,12 @@ const manifest = {
   files: inventory(resourcesDir),
 }
 writeFileSync(join(resourcesDir, 'toneclaw-manifest.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
-writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\nUI entry: ${manifest.packages[1].entry}\nBilling entry: ${manifest.packages[2].entry}\n`)
+writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\nUI entry: ${manifest.packages[1].entry}\nBilling entry: ${manifest.packages[2].entry}\nProduct entry: ${manifest.packages[3].entry}\n`)
 
 console.log(`desktop resources: ${resourcesDir}`)
 console.log(`files: ${manifest.files.length}`)
 console.log(`plugin: ${manifest.packages[0].entry}`)
 console.log(`ui: ${manifest.packages[1].entry}`)
 console.log(`billing: ${manifest.packages[2].entry}`)
+console.log(`product: ${manifest.packages[3].entry}`)
 console.log(`profile: ${manifest.profiles[0].path}`)

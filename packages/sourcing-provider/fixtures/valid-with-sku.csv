@@ -1,0 +1,2 @@
+sourceId,supplierName,supplierUrl,title,description,categoryCandidate,costPrice,currency,moq,supplyAbility,imageUrls,skuAttributesJson,complianceJson,suggestedRetailPrice,stockQty,leadTimeDays
+SKU-MULTI-001,Northline Goods,https://northline.example.com/mug,Ceramic coffee mug,Available in two colours,Home,45.00,USD,1,300,https://img.example.com/mug.jpg,"[{""sku"":""MUG-BLUE"",""optionValues"":{""color"":""blue""}},{""sku"":""MUG-GREY"",""optionValues"":{""color"":""grey""}}]",{},69.00,120,4

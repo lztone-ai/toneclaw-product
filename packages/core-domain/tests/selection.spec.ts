@@ -14,6 +14,7 @@ function makeDeps() {
     clock: { now: () => new Date('2026-03-15T10:00:00Z') },
     audit: { append: event => audits.push({ action: event.action, after: event.after }) },
     items: {
+      insert: async item => { items.set(item.id, item) },
       findById: async (_workspaceId, id) => items.get(id),
       update: async item => { items.set(item.id, item) },
     },
@@ -43,8 +44,10 @@ function seedCandidate(items: Map<string, SourcingItem>, id = 'item-1'): Sourcin
     businessAccountId: 'ws',
     supplierId: 'supplier-1',
     dataSourceId: 'ds-1',
+    sourceRecordId: 'source-record-1',
     externalSourceId: 'SRC-9001',
     title: '便携榨汁杯',
+    descriptionRaw: null,
     categoryLabels: ['厨房', '小家电'],
     currency: 'CNY',
     purchasePriceMinor: 6700,

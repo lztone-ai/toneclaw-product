@@ -5,7 +5,8 @@ import { applyFilterRules, type FilterCandidate } from '../src/rules.ts'
 function item(overrides: Partial<SourcingItem>): FilterCandidate {
   const base: SourcingItem = {
     id: 'i', businessAccountId: 'ws', supplierId: 's', dataSourceId: 'd',
-    externalSourceId: null, title: 't', categoryLabels: ['厨房'], currency: 'CNY',
+    sourceRecordId: 'r', externalSourceId: null, title: 't', descriptionRaw: null,
+    categoryLabels: ['厨房'], currency: 'CNY',
     purchasePriceMinor: 5000, suggestedRetailPriceMinor: null, moq: null,
     leadTimeDays: null, stockStatus: 'available', supplyStatus: 'active',
     riskStatus: 'unknown', status: 'candidate', imageUrls: [],
