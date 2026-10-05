@@ -10,12 +10,13 @@
     "clean:release": "node scripts/clean-release.mjs",
     "package:transport": "pnpm run build && node scripts/clean-release.mjs && pnpm --filter @toneclaw/feishu-long-connection deploy --prod release/feishu-long-connection && pnpm --filter @toneclaw/billing-host deploy --prod release/billing-host && node scripts/generate-profile.mjs --billing-plugin release/billing-host/dist/index.mjs",
     "compose:desktop": "pnpm run package:transport && node packages/desktop-composition/src/compose.mjs",
-    "build": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/desktop-ui --filter @toneclaw/billing-local --filter @toneclaw/billing-host run build",
-    "test": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/billing-local --filter @toneclaw/billing-host run test",
-    "typecheck": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/billing-local --filter @toneclaw/billing-host run typecheck",
+    "build": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/desktop-ui --filter @toneclaw/billing-local --filter @toneclaw/billing-host --filter @toneclaw/core-domain run build",
+    "test": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/billing-local --filter @toneclaw/billing-host --filter @toneclaw/core-domain run test",
+    "typecheck": "pnpm --filter @toneclaw/feishu-long-connection --filter @toneclaw/billing-local --filter @toneclaw/billing-host --filter @toneclaw/core-domain run typecheck",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "check:dependency-direction": "node scripts/check-dependency-direction.mjs",
     "check:ui-copy": "node scripts/check-ui-copy.mjs",
     "check:engine-lock": "node scripts/check-engine-lock.mjs",
-    "check": "pnpm run check:boundaries && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run check:ui-copy"
+    "check": "pnpm run check:boundaries && pnpm run check:dependency-direction && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run check:ui-copy"
   }
 }
