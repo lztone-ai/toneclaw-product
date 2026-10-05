@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
     <title>ToneClaw 工作台</title>
     <link rel="stylesheet" href="./styles.css">
     <script src="./app.js" defer></script>
@@ -234,6 +234,10 @@
               <h2>本期额度</h2>
               <div class="usage-meter"><span class="is-zero"></span></div>
               <p>0 / 50,000 Tokens · 超出额度后 AI 动作会被阻断。</p>
+            </article>
+            <article class="panel" id="usage-live" aria-live="polite">
+              <h2>配额服务</h2>
+              <p>正在读取本地配额权威…</p>
             </article>
             <div class="empty-panel">
               <h2>还没有用量记录</h2>

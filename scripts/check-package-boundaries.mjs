@@ -37,6 +37,7 @@ for (const packageDir of packageDirs) {
   const allowed = metadata?.allowedExternalDependencies ?? []
   for (const name of productionDependencies) {
     if (name.startsWith('@deepseek-ai/')) failures.push(`${id}: product package must not depend on ${name}`)
+    if (name.startsWith('@toneclaw/')) continue
     if (!allowed.includes(name)) {
       failures.push(`${id}: external dependency ${name} is not listed in toneclaw.allowedExternalDependencies`)
     }
@@ -44,6 +45,7 @@ for (const packageDir of packageDirs) {
 
   for (const section of ['dependencies', 'devDependencies']) {
     for (const [name, version] of Object.entries(manifest[section] ?? {})) {
+      if (name.startsWith('@toneclaw/')) continue
       if (!isExactVersion(version)) {
         failures.push(`${id}: ${section}.${name} must use an exact version, got ${JSON.stringify(version)}`)
       }

@@ -151,6 +151,10 @@ export class LocalBillingAuthority {
     return { status: subscription.status, planId: subscription.planId, validTo: subscription.validTo }
   }
 
+  planDefinition(): PlanDefinition {
+    return this.plan
+  }
+
   validateFeature(workspaceId: string, featureKey: string): FeatureDecision {
     const subscription = this.ensureSubscription(workspaceId)
     const active = subscription.status === 'Active' || subscription.status === 'Trial'

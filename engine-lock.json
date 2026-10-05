@@ -3,6 +3,6 @@
     "name": "deepseek-harness",
     "remote": "https://github.com/lztone-ai/deepseek-harness.git",
     "branch": "toneclaw/phase1-workbench-store",
-    "commit": "bbc54b4d21e613b5f6fdf886bb525fdf4fa1d989"
+    "commit": "e3fb53df17c768f4e3667ce80a8fde281bf042eb"
   }
 }
