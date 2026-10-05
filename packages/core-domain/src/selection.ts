@@ -33,6 +33,7 @@ export interface DecideInput {
   sourcingItemId: string
   decision: SelectionDecisionValue
   reason: string
+  scoresJson?: string | null
   decidedBy: DecidedBy
   actorId: string
 }
@@ -88,7 +89,7 @@ export async function decide(deps: SelectionDeps, input: DecideInput): Promise<D
     sourcingItemId: input.sourcingItemId,
     decision: input.decision,
     reason: input.reason,
-    scoresJson: null,
+    scoresJson: input.scoresJson ?? null,
     decidedBy: input.decidedBy,
     decidedAt: now,
     status: 'active',

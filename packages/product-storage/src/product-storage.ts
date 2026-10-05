@@ -172,6 +172,7 @@ export interface SourcingImportWritePlan {
 export interface SourcingItemView {
   item: SourcingItem
   decision: SelectionDecision | null
+  scoresJson: string | null
   productCreated: boolean
 }
 
@@ -891,6 +892,7 @@ export class ProductStorage {
     return items.map(item => ({
       item,
       decision: decisions.get(item.id) ?? null,
+      scoresJson: decisions.get(item.id)?.scoresJson ?? null,
       productCreated: productsByItem.has(item.id),
     }))
   }

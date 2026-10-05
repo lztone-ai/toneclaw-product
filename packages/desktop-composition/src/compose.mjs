@@ -11,12 +11,14 @@ const releaseDir = resolve(root, 'release')
 const transportSource = resolve(releaseDir, 'feishu-long-connection')
 const billingSource = resolve(releaseDir, 'billing-host')
 const productSource = resolve(releaseDir, 'product-host')
+const selectionSource = resolve(releaseDir, 'selection-tool')
 const profileSource = resolve(releaseDir, 'profiles/desktop.patch.yml')
 const uiSource = resolve(root, 'packages/desktop-ui/dist')
 const resourcesDir = resolve(releaseDir, 'desktop-resources')
 const pluginDestination = resolve(resourcesDir, 'plugins/feishu-long-connection')
 const billingDestination = resolve(resourcesDir, 'plugins/billing-host')
 const productDestination = resolve(resourcesDir, 'plugins/product-host')
+const selectionDestination = resolve(resourcesDir, 'plugins/selection-tool')
 const uiDestination = resolve(resourcesDir, 'ui')
 const profileDestination = resolve(resourcesDir, 'profiles/desktop.patch.yml')
 
@@ -58,6 +60,9 @@ if (!existsSync(join(billingSource, 'dist/index.mjs'))) {
 if (!existsSync(join(productSource, 'dist/index.mjs'))) {
   throw new Error(`product host build missing: ${productSource}; run pnpm run package:transport`)
 }
+if (!existsSync(join(selectionSource, 'dist/index.mjs'))) {
+  throw new Error(`selection tool build missing: ${selectionSource}; run pnpm run package:transport`)
+}
 if (!existsSync(profileSource)) {
   throw new Error(`generated profile missing: ${profileSource}; run pnpm run package:transport`)
 }
@@ -69,6 +74,7 @@ rmSync(resourcesDir, { recursive: true, force: true, maxRetries: 10, retryDelay:
 cpSync(transportSource, pluginDestination, { recursive: true, dereference: true })
 cpSync(billingSource, billingDestination, { recursive: true, dereference: true })
 cpSync(productSource, productDestination, { recursive: true, dereference: true })
+cpSync(selectionSource, selectionDestination, { recursive: true, dereference: true })
 cpSync(uiSource, uiDestination, { recursive: true, dereference: true })
 
 // Regenerate the profile for its final resource-relative location.
@@ -78,6 +84,7 @@ const generated = spawnSync(process.execPath, [generator,
   '--plugin', pluginEntrySource,
   '--billing-plugin', join(billingDestination, 'dist/index.mjs'),
   '--product-plugin', join(productDestination, 'dist/index.mjs'),
+  '--selection-tool', join(selectionDestination, 'dist/index.mjs'),
   '--out', profileDestination,
 ], { stdio: 'inherit', windowsHide: true })
 if (generated.status !== 0) process.exit(generated.status ?? 1)
@@ -100,11 +107,17 @@ const productModule = await import(pathToFileURL(productEntrySource).href)
 if (productModule.name !== 'product-host' || !Array.isArray(productModule.inject)) {
   throw new Error('composed product plugin does not expose the expected Cordis entry shape')
 }
+const selectionEntrySource = join(selectionDestination, 'dist/index.mjs')
+const selectionModule = await import(pathToFileURL(selectionEntrySource).href)
+if (selectionModule.name !== 'selection-tool' || !Array.isArray(selectionModule.inject)) {
+  throw new Error('composed selection tool does not expose the expected Cordis entry shape')
+}
 
 const engineLock = JSON.parse(readFileSync(resolve(root, 'engine-lock.json'), 'utf8'))
 const transportManifest = JSON.parse(readFileSync(join(transportSource, 'package.json'), 'utf8'))
 const billingManifest = JSON.parse(readFileSync(join(billingSource, 'package.json'), 'utf8'))
 const productManifest = JSON.parse(readFileSync(join(productSource, 'package.json'), 'utf8'))
+const selectionManifest = JSON.parse(readFileSync(join(selectionSource, 'package.json'), 'utf8'))
 const uiManifest = JSON.parse(readFileSync(resolve(root, 'packages/desktop-ui/package.json'), 'utf8'))
 const manifest = {
   schemaVersion: 1,
@@ -135,6 +148,12 @@ const manifest = {
       path: 'plugins/product-host',
       entry: 'plugins/product-host/dist/index.mjs',
     },
+    {
+      name: selectionManifest.name,
+      version: selectionManifest.version,
+      path: 'plugins/selection-tool',
+      entry: 'plugins/selection-tool/dist/index.mjs',
+    },
   ],
   profiles: [{
     id: 'desktop',
@@ -143,7 +162,7 @@ const manifest = {
   files: inventory(resourcesDir),
 }
 writeFileSync(join(resourcesDir, 'toneclaw-manifest.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
-writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\nUI entry: ${manifest.packages[1].entry}\nBilling entry: ${manifest.packages[2].entry}\nProduct entry: ${manifest.packages[3].entry}\n`)
+writeFileSync(resolve(resourcesDir, 'README.txt'), `ToneClaw desktop resource bundle.\nLoad profile: ${manifest.profiles[0].path}\nPlugin entry: ${manifest.packages[0].entry}\nUI entry: ${manifest.packages[1].entry}\nBilling entry: ${manifest.packages[2].entry}\nProduct entry: ${manifest.packages[3].entry}\nSelection entry: ${manifest.packages[4].entry}\n`)
 
 console.log(`desktop resources: ${resourcesDir}`)
 console.log(`files: ${manifest.files.length}`)
@@ -151,4 +170,5 @@ console.log(`plugin: ${manifest.packages[0].entry}`)
 console.log(`ui: ${manifest.packages[1].entry}`)
 console.log(`billing: ${manifest.packages[2].entry}`)
 console.log(`product: ${manifest.packages[3].entry}`)
+console.log(`selection: ${manifest.packages[4].entry}`)
 console.log(`profile: ${manifest.profiles[0].path}`)

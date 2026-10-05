@@ -18,7 +18,9 @@ export interface SourcingSnapshotItem {
   imageUrls: string[]
   updatedAt: string
   decision: 'approved' | 'rejected' | 'observing' | null
+  decisionBy: 'user' | 'ai' | 'system' | null
   decisionReason: string | null
+  scoresJson: string | null
   productCreated: boolean
 }
 
@@ -95,7 +97,9 @@ export function writeSourcingSnapshot(
         imageUrls: view.item.imageUrls,
         updatedAt: view.item.updatedAt,
         decision: view.decision?.decision ?? null,
+        decisionBy: view.decision?.decidedBy ?? null,
         decisionReason: view.decision?.reason ?? null,
+        scoresJson: view.scoresJson,
         productCreated: view.productCreated,
       })),
       batches: batches.map(batch => ({

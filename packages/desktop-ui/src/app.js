@@ -134,6 +134,15 @@
     const rowHtml = rows.map((item) => {
       const retail = item.suggestedRetailPriceMinor;
       const margin = retail === null ? "—" : `${(((retail - item.purchasePriceMinor) / retail) * 100).toFixed(1)}%`;
+      let aiSuggestion = "";
+      if (item.decisionBy === "ai" && typeof item.scoresJson === "string" && item.scoresJson !== "") {
+        try {
+          const scores = JSON.parse(item.scoresJson);
+          if (scores.recommendation === "observe") {
+            aiSuggestion = `<div class="ai-suggestion"><strong>AI ${scores.score}</strong><span>${escapeHtml(scores.summary)}</span>${(scores.risks || []).map((risk) => `<em>${escapeHtml(risk)}</em>`).join("")}</div>`;
+          }
+        } catch { /* malformed historical suggestions remain hidden from actions */ }
+      }
       const reasonInput = '<input class="decision-reason" type="text" placeholder="理由必填" aria-label="选品理由">';
       let actions = "";
       if (item.status === "candidate") {
@@ -162,6 +171,7 @@
           <td>${item.leadTimeDays === null ? "—" : `${item.leadTimeDays} 天`}</td>
           <td><span class="status-pill">${escapeHtml(statusLabels[item.status] ?? item.status)}</span></td>
           <td>${actions}</td>
+          <td>${aiSuggestion}</td>
         </tr>`;
     }).join("");
     selectionLive.innerHTML = `
@@ -169,7 +179,7 @@
         <h2>候选与决策</h2>
         ${rowHtml === "" ? '<div class="empty-card">当前筛选条件下没有可选货盘。</div>' : `
           <div class="table-wrap"><table>
-            <thead><tr><th>商品</th><th>供货价</th><th>建议零售</th><th>毛利</th><th>MOQ</th><th>时效</th><th>状态</th><th>选品动作</th></tr></thead>
+            <thead><tr><th>商品</th><th>供货价</th><th>建议零售</th><th>毛利</th><th>MOQ</th><th>时效</th><th>状态</th><th>选品动作</th><th>AI 参考</th></tr></thead>
             <tbody>${rowHtml}</tbody>
           </table></div>`}
         <p class="context-note">所有决策都会保留理由、旧决策替换记录和审计；通过后可创建商品并双写成本基准。</p>

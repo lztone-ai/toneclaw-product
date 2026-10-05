@@ -53,6 +53,15 @@ describe('product import host', () => {
     }
     expect(snapshot.commands?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/v1$/)
     const itemId = snapshot.items[0].id
+    await host.productApi().recordAiSuggestion({
+      sourcingItemId: itemId,
+      reason: 'AI 观察建议',
+      scoresJson: JSON.stringify({ recommendation: 'observe', score: 72, risks: [] }),
+    })
+    snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+    expect(snapshot.items[0].decision).toBe('observing')
+    expect(snapshot.items[0].decisionBy).toBe('ai')
+    expect(snapshot.items[0].scoresJson).toContain('"score":72')
     const headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${snapshot.commands.token}`,

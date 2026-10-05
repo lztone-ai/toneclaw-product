@@ -1,0 +1,35 @@
+{
+  "name": "@toneclaw/selection-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI sourcing suggestion tool with local billing lifecycle and observe-only persistence.",
+  "license": "UNLICENSED",
+  "toneclaw": {
+    "layer": "product",
+    "kind": "dsh-plugin",
+    "allowedExternalDependencies": []
+  },
+  "main": "./dist/index.mjs",
+  "exports": {
+    ".": "./dist/index.mjs"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "dependencies": {
+    "@toneclaw/core-domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}

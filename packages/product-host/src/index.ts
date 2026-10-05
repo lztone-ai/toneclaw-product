@@ -320,6 +320,12 @@ export class ProductImportHost {
     return {
       listSourcingItemViews: async (workspaceId = this.config.workspaceId) =>
         this.storage.listSourcingItemViews(workspaceId),
+      getSourcingItemView: async (sourcingItemId: string, workspaceId = this.config.workspaceId) => {
+        const view = this.storage.listSourcingItemViews(workspaceId)
+          .find(candidate => candidate.item.id === sourcingItemId)
+        if (view === undefined) throw new Error(`sourcing item not found: ${sourcingItemId}`)
+        return view
+      },
       listSourcingItems: async (workspaceId = this.config.workspaceId) =>
         this.storage.listSourcingItems(workspaceId),
       listImportBatches: async (workspaceId = this.config.workspaceId, limit = 50) =>
@@ -355,6 +361,23 @@ export class ProductImportHost {
           ...input,
           workspaceId: this.config.workspaceId,
           actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      recordAiSuggestion: async (input: {
+        sourcingItemId: string
+        reason: string
+        scoresJson: string
+      }) => {
+        const result = await decide(this.selectionDeps(), {
+          workspaceId: this.config.workspaceId,
+          sourcingItemId: input.sourcingItemId,
+          decision: 'observing',
+          reason: input.reason,
+          scoresJson: input.scoresJson,
+          decidedBy: 'ai',
+          actorId: 'selection-tool',
         })
         await this.writeSnapshot()
         return result
