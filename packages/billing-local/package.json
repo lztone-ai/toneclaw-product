@@ -1,0 +1,32 @@
+{
+  "name": "@toneclaw/billing-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local SubscriptionAuthority / QuotaAuthority with SQLite persistence for ToneClaw AI usage lifecycle.",
+  "license": "UNLICENSED",
+  "toneclaw": {
+    "layer": "product",
+    "kind": "product-library"
+  },
+  "main": "./dist/index.mjs",
+  "exports": {
+    ".": "./dist/index.mjs"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "fixture": "node dist/fixture.mjs",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}
