@@ -52,15 +52,15 @@ interface BillingAuthority {
     idempotencyKey: string
     relatedObjectType?: string
     relatedObjectId?: string
-  }): Promise<{ reservationId: string; deduplicated: boolean }>
+  }): { reservationId: string; deduplicated: boolean } | Promise<{ reservationId: string; deduplicated: boolean }>
   commit(reservationId: string, usage: {
     inputTokens: number
     outputTokens: number
     estimated: boolean
     costEstimateMinor?: number
     auditRef?: string
-  }): Promise<{ id: string; status: string }>
-  release(reservationId: string, reason: string): Promise<{ id: string; status: string }>
+  }): { id: string; status: string } | Promise<{ id: string; status: string }>
+  release(reservationId: string, reason: string): { id: string; status: string } | Promise<{ id: string; status: string }>
 }
 
 interface Suggestion {

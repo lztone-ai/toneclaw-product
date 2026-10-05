@@ -778,7 +778,19 @@ export class ProductStorage {
     this.db.exec('BEGIN IMMEDIATE')
     try {
       await this.dataSources.insert(plan.dataSource)
-      for (const supplier of plan.suppliers) await this.suppliers.insert(supplier)
+      const supplierIds = new Map<string, string>()
+      for (const supplier of plan.suppliers) {
+        const existing = await this.suppliers.findByNormalizedName(
+          supplier.businessAccountId,
+          supplier.nameNormalized,
+        )
+        if (existing === undefined) {
+          await this.suppliers.insert(supplier)
+          supplierIds.set(supplier.id, supplier.id)
+        } else {
+          supplierIds.set(supplier.id, existing.id)
+        }
+      }
       await this.categories.ensureUncategorized({
         id: 'category-uncategorized',
         parentId: null,
@@ -787,7 +799,10 @@ export class ProductStorage {
         level: 1,
         status: 'active',
       })
-      for (const item of plan.items) await this.sourcingItems.insert(item)
+      for (const item of plan.items) {
+        const supplierId = supplierIds.get(item.supplierId)
+        await this.sourcingItems.insert(supplierId === undefined ? item : { ...item, supplierId })
+      }
       for (const record of plan.sourceRecords) await this.sourceRecords.insert(record)
       await this.media.insertMany(plan.media)
       await this.qualifications.insertMany(plan.qualifications)
@@ -808,7 +823,7 @@ export class ProductStorage {
           failedRows: plan.batch.failedRows,
           warningRows: plan.batch.warningRows,
           dataSourceId: plan.dataSource.id,
-          supplierIds: plan.suppliers.map(supplier => supplier.id),
+          supplierIds: [...new Set(plan.suppliers.map(supplier => supplierIds.get(supplier.id) ?? supplier.id))],
         }),
         reason: null,
         source: 'sourcing-provider',

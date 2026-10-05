@@ -29,6 +29,8 @@
     "@toneclaw/sourcing-provider": "workspace:*"
   },
   "devDependencies": {
+    "@toneclaw/billing-local": "workspace:*",
+    "@toneclaw/selection-tool": "workspace:*",
     "@types/node": "22.20.0",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",

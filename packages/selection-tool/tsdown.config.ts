@@ -5,7 +5,7 @@ export default defineConfig({
   format: 'esm',
   platform: 'node',
   target: 'node22',
-  dts: false,
+  dts: true,
   sourcemap: true,
   outDir: 'dist',
   outExtensions: () => ({ js: '.mjs', dts: '.d.mts' }),

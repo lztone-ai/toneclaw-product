@@ -93,6 +93,12 @@ importers:
         specifier: workspace:*
         version: link:../sourcing-provider
     devDependencies:
+      '@toneclaw/billing-local':
+        specifier: workspace:*
+        version: link:../billing-local
+      '@toneclaw/selection-tool':
+        specifier: workspace:*
+        version: link:../selection-tool
       '@types/node':
         specifier: 22.20.0
         version: 22.20.0
