@@ -865,13 +865,20 @@ export async function generateManualListingPackage(
   const pkg: ManualListingPackage = {
     id: packageId,
     businessAccountId: input.workspaceId,
+    platform: draft.platform,
     listingDraftId: draft.id,
     productId: draft.productId,
     storeId: draft.storeId,
+    format: 'json',
     fileRef: `listing-packages/${packageId}.json`,
+    storageRef: `data/listing-packages/${packageId}.json`,
     payloadJson: `${JSON.stringify(payload, null, 2)}\n`,
+    status: 'generated',
     createdBy: input.actorId,
     createdAt: now,
+    submittedBy: null,
+    submittedAt: null,
+    externalListingId: null,
   }
   await deps.manualPackages.insert(pkg)
   auditEvent(deps, input.workspaceId, 'listing.manual_package_created', 'ManualListingPackage', pkg.id, {

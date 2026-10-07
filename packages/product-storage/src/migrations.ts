@@ -459,6 +459,70 @@ const LISTING_GOVERNANCE = `
         ON approval_tasks(business_account_id, status, created_at);
 `
 
+const PUBLISHING_CENTER = `
+      CREATE TABLE IF NOT EXISTS publish_jobs (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        listing_draft_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        action TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempt_count INTEGER NOT NULL DEFAULT 3,
+        external_job_ref TEXT,
+        error_catalog_id TEXT,
+        manual_package_id TEXT,
+        next_action TEXT,
+        started_at TEXT,
+        finished_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_publish_jobs_account
+        ON publish_jobs(business_account_id, status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_publish_jobs_draft
+        ON publish_jobs(business_account_id, listing_draft_id);
+      CREATE TABLE IF NOT EXISTS platform_listings (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        listing_draft_id TEXT,
+        origin TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        external_listing_id TEXT NOT NULL,
+        url TEXT,
+        core_status TEXT NOT NULL,
+        raw_status TEXT NOT NULL,
+        price_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        stock_qty INTEGER NOT NULL,
+        last_synced_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_listings_external
+        ON platform_listings(business_account_id, store_id, external_listing_id);
+      CREATE INDEX IF NOT EXISTS idx_platform_listings_account
+        ON platform_listings(business_account_id, core_status);
+      CREATE TABLE IF NOT EXISTS listing_revisions (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        platform_listing_id TEXT,
+        listing_draft_id TEXT NOT NULL,
+        publish_job_id TEXT,
+        revision INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_listing_revisions_draft
+        ON listing_revisions(business_account_id, listing_draft_id, revision);
+      CREATE INDEX IF NOT EXISTS idx_listing_revisions_listing
+        ON listing_revisions(business_account_id, platform_listing_id, revision);
+`
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -490,6 +554,20 @@ export const MIGRATIONS: Migration[] = [
     name: 'listing_governance_d1',
     apply: db => {
       db.exec(LISTING_GOVERNANCE)
+    },
+  },
+  {
+    version: 5,
+    name: 'publishing_center_slice_e',
+    apply: db => {
+      db.exec(PUBLISHING_CENTER)
+      ensureColumn(db, 'manual_listing_packages', 'platform', "TEXT NOT NULL DEFAULT 'temu'")
+      ensureColumn(db, 'manual_listing_packages', 'format', "TEXT NOT NULL DEFAULT 'json'")
+      ensureColumn(db, 'manual_listing_packages', 'storage_ref', "TEXT NOT NULL DEFAULT ''")
+      ensureColumn(db, 'manual_listing_packages', 'status', "TEXT NOT NULL DEFAULT 'generated'")
+      ensureColumn(db, 'manual_listing_packages', 'submitted_by', 'TEXT')
+      ensureColumn(db, 'manual_listing_packages', 'submitted_at', 'TEXT')
+      ensureColumn(db, 'manual_listing_packages', 'external_listing_id', 'TEXT')
     },
   },
 ]

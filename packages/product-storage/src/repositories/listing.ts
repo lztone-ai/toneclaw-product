@@ -29,6 +29,12 @@ import type {
   PlatformAttributeValue,
   PlatformFitAssessment,
   PlatformFitAssessmentRepository,
+  PlatformListing,
+  PlatformListingRepository,
+  ListingRevision,
+  ListingRevisionRepository,
+  PublishJob,
+  PublishJobRepository,
 } from '@toneclaw/core-domain'
 
 interface ContentDraftRow {
@@ -112,6 +118,65 @@ interface ManualPackageRow {
   file_ref: string
   payload_json: string
   created_by: string
+  created_at: string
+  platform: ManualListingPackage['platform']
+  format: ManualListingPackage['format']
+  storage_ref: string
+  status: ManualListingPackage['status']
+  submitted_by: string | null
+  submitted_at: string | null
+  external_listing_id: string | null
+}
+
+interface PublishJobRow {
+  id: string
+  business_account_id: string
+  listing_draft_id: string
+  store_id: string
+  platform: PublishJob['platform']
+  action: PublishJob['action']
+  status: PublishJob['status']
+  attempt_count: number
+  max_attempt_count: number
+  external_job_ref: string | null
+  error_catalog_id: string | null
+  manual_package_id: string | null
+  next_action: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface PlatformListingRow {
+  id: string
+  business_account_id: string
+  product_id: string
+  listing_draft_id: string | null
+  origin: PlatformListing['origin']
+  store_id: string
+  platform: PlatformListing['platform']
+  external_listing_id: string
+  url: string | null
+  core_status: PlatformListing['coreStatus']
+  raw_status: string
+  price_minor: number
+  currency: string
+  stock_qty: number
+  last_synced_at: string
+  created_at: string
+  updated_at: string
+}
+
+interface ListingRevisionRow {
+  id: string
+  business_account_id: string
+  platform_listing_id: string | null
+  listing_draft_id: string
+  publish_job_id: string | null
+  revision: number
+  payload_json: string
+  status: ListingRevision['status']
   created_at: string
 }
 
@@ -284,8 +349,43 @@ function mapManualPackage(row: ManualPackageRow): ManualListingPackage {
   return {
     id: row.id, businessAccountId: row.business_account_id,
     listingDraftId: row.listing_draft_id, productId: row.product_id,
-    storeId: row.store_id, fileRef: row.file_ref, payloadJson: row.payload_json,
-    createdBy: row.created_by, createdAt: row.created_at,
+    storeId: row.store_id, platform: row.platform, format: row.format,
+    fileRef: row.file_ref, storageRef: row.storage_ref, payloadJson: row.payload_json,
+    status: row.status, createdBy: row.created_by, createdAt: row.created_at,
+    submittedBy: row.submitted_by, submittedAt: row.submitted_at,
+    externalListingId: row.external_listing_id,
+  }
+}
+
+function mapPublishJob(row: PublishJobRow): PublishJob {
+  return {
+    id: row.id, businessAccountId: row.business_account_id,
+    listingDraftId: row.listing_draft_id, storeId: row.store_id, platform: row.platform,
+    action: row.action, status: row.status, attemptCount: row.attempt_count,
+    maxAttemptCount: row.max_attempt_count, externalJobRef: row.external_job_ref,
+    errorCatalogId: row.error_catalog_id, manualPackageId: row.manual_package_id,
+    nextAction: row.next_action, startedAt: row.started_at, finishedAt: row.finished_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapPlatformListing(row: PlatformListingRow): PlatformListing {
+  return {
+    id: row.id, businessAccountId: row.business_account_id, productId: row.product_id,
+    listingDraftId: row.listing_draft_id, origin: row.origin, storeId: row.store_id,
+    platform: row.platform, externalListingId: row.external_listing_id, url: row.url,
+    coreStatus: row.core_status, rawStatus: row.raw_status, priceMinor: row.price_minor,
+    currency: row.currency, stockQty: row.stock_qty, lastSyncedAt: row.last_synced_at,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapListingRevision(row: ListingRevisionRow): ListingRevision {
+  return {
+    id: row.id, businessAccountId: row.business_account_id,
+    platformListingId: row.platform_listing_id, listingDraftId: row.listing_draft_id,
+    publishJobId: row.publish_job_id, revision: row.revision,
+    payloadJson: row.payload_json, status: row.status, createdAt: row.created_at,
   }
 }
 
@@ -575,12 +675,15 @@ export function createListingRepositories(db: DatabaseSync): ListingRepositories
     insert: async pkg => {
       db.prepare(`
         INSERT INTO manual_listing_packages (
-          id, business_account_id, listing_draft_id, product_id, store_id,
-          file_ref, payload_json, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, business_account_id, platform, listing_draft_id, product_id, store_id,
+          format, file_ref, storage_ref, payload_json, status, created_by, created_at,
+          submitted_by, submitted_at, external_listing_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        pkg.id, pkg.businessAccountId, pkg.listingDraftId, pkg.productId, pkg.storeId,
-        pkg.fileRef, pkg.payloadJson, pkg.createdBy, pkg.createdAt,
+        pkg.id, pkg.businessAccountId, pkg.platform, pkg.listingDraftId, pkg.productId,
+        pkg.storeId, pkg.format, pkg.fileRef, pkg.storageRef, pkg.payloadJson,
+        pkg.status, pkg.createdBy, pkg.createdAt, pkg.submittedBy, pkg.submittedAt,
+        pkg.externalListingId,
       )
     },
     list: async businessAccountId => {
@@ -589,6 +692,142 @@ export function createListingRepositories(db: DatabaseSync): ListingRepositories
         ORDER BY created_at DESC, id DESC
       `).all(businessAccountId) as unknown as ManualPackageRow[]
       return rows.map(mapManualPackage)
+    },
+    findById: async (businessAccountId, id) => {
+      const row = db.prepare(
+        `SELECT * FROM manual_listing_packages WHERE id = ? AND business_account_id = ? LIMIT 1`,
+      ).get(id, businessAccountId) as unknown as ManualPackageRow | undefined
+      return row === undefined ? undefined : mapManualPackage(row)
+    },
+    update: async pkg => {
+      db.prepare(`
+        UPDATE manual_listing_packages SET
+          status = ?, submitted_by = ?, submitted_at = ?, external_listing_id = ?
+        WHERE id = ? AND business_account_id = ?
+      `).run(
+        pkg.status, pkg.submittedBy, pkg.submittedAt, pkg.externalListingId,
+        pkg.id, pkg.businessAccountId,
+      )
+    },
+  }
+
+  const publishJobs: PublishJobRepository = {
+    insert: async job => {
+      db.prepare(`
+        INSERT INTO publish_jobs (
+          id, business_account_id, listing_draft_id, store_id, platform, action,
+          status, attempt_count, max_attempt_count, external_job_ref, error_catalog_id,
+          manual_package_id, next_action, started_at, finished_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        job.id, job.businessAccountId, job.listingDraftId, job.storeId, job.platform,
+        job.action, job.status, job.attemptCount, job.maxAttemptCount,
+        job.externalJobRef, job.errorCatalogId, job.manualPackageId, job.nextAction,
+        job.startedAt, job.finishedAt, job.createdAt, job.updatedAt,
+      )
+    },
+    findById: async (businessAccountId, id) => {
+      const row = db.prepare(
+        `SELECT * FROM publish_jobs WHERE id = ? AND business_account_id = ? LIMIT 1`,
+      ).get(id, businessAccountId) as unknown as PublishJobRow | undefined
+      return row === undefined ? undefined : mapPublishJob(row)
+    },
+    list: async businessAccountId => {
+      const rows = db.prepare(`
+        SELECT * FROM publish_jobs WHERE business_account_id = ? ORDER BY created_at DESC, id DESC
+      `).all(businessAccountId) as unknown as PublishJobRow[]
+      return rows.map(mapPublishJob)
+    },
+    update: async job => {
+      db.prepare(`
+        UPDATE publish_jobs SET
+          status = ?, attempt_count = ?, external_job_ref = ?, error_catalog_id = ?,
+          manual_package_id = ?, next_action = ?, started_at = ?, finished_at = ?, updated_at = ?
+        WHERE id = ? AND business_account_id = ?
+      `).run(
+        job.status, job.attemptCount, job.externalJobRef, job.errorCatalogId,
+        job.manualPackageId, job.nextAction, job.startedAt, job.finishedAt, job.updatedAt,
+        job.id, job.businessAccountId,
+      )
+    },
+  }
+
+  const platformListings: PlatformListingRepository = {
+    insert: async listing => {
+      db.prepare(`
+        INSERT INTO platform_listings (
+          id, business_account_id, product_id, listing_draft_id, origin, store_id,
+          platform, external_listing_id, url, core_status, raw_status, price_minor,
+          currency, stock_qty, last_synced_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        listing.id, listing.businessAccountId, listing.productId, listing.listingDraftId,
+        listing.origin, listing.storeId, listing.platform, listing.externalListingId,
+        listing.url, listing.coreStatus, listing.rawStatus, listing.priceMinor,
+        listing.currency, listing.stockQty, listing.lastSyncedAt,
+        listing.createdAt, listing.updatedAt,
+      )
+    },
+    findById: async (businessAccountId, id) => {
+      const row = db.prepare(
+        `SELECT * FROM platform_listings WHERE id = ? AND business_account_id = ? LIMIT 1`,
+      ).get(id, businessAccountId) as unknown as PlatformListingRow | undefined
+      return row === undefined ? undefined : mapPlatformListing(row)
+    },
+    findByExternalId: async (businessAccountId, platform, storeId, externalListingId) => {
+      const row = db.prepare(`
+        SELECT * FROM platform_listings
+        WHERE business_account_id = ? AND platform = ? AND store_id = ?
+          AND external_listing_id = ? LIMIT 1
+      `).get(businessAccountId, platform, storeId, externalListingId) as unknown as PlatformListingRow | undefined
+      return row === undefined ? undefined : mapPlatformListing(row)
+    },
+    list: async businessAccountId => {
+      const rows = db.prepare(`
+        SELECT * FROM platform_listings WHERE business_account_id = ? ORDER BY created_at DESC, id DESC
+      `).all(businessAccountId) as unknown as PlatformListingRow[]
+      return rows.map(mapPlatformListing)
+    },
+    update: async listing => {
+      db.prepare(`
+        UPDATE platform_listings SET
+          url = ?, core_status = ?, raw_status = ?, price_minor = ?, stock_qty = ?,
+          last_synced_at = ?, updated_at = ?
+        WHERE id = ? AND business_account_id = ?
+      `).run(
+        listing.url, listing.coreStatus, listing.rawStatus, listing.priceMinor,
+        listing.stockQty, listing.lastSyncedAt, listing.updatedAt,
+        listing.id, listing.businessAccountId,
+      )
+    },
+  }
+
+  const revisions: ListingRevisionRepository = {
+    insert: async revision => {
+      db.prepare(`
+        INSERT INTO listing_revisions (
+          id, business_account_id, platform_listing_id, listing_draft_id,
+          publish_job_id, revision, payload_json, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        revision.id, revision.businessAccountId, revision.platformListingId,
+        revision.listingDraftId, revision.publishJobId, revision.revision,
+        revision.payloadJson, revision.status, revision.createdAt,
+      )
+    },
+    listByDraft: async (businessAccountId, listingDraftId) => {
+      const rows = db.prepare(`
+        SELECT * FROM listing_revisions
+        WHERE business_account_id = ? AND listing_draft_id = ? ORDER BY revision DESC
+      `).all(businessAccountId, listingDraftId) as unknown as ListingRevisionRow[]
+      return rows.map(mapListingRevision)
+    },
+    listByPlatformListing: async (businessAccountId, platformListingId) => {
+      const rows = db.prepare(`
+        SELECT * FROM listing_revisions
+        WHERE business_account_id = ? AND platform_listing_id = ? ORDER BY revision DESC
+      `).all(businessAccountId, platformListingId) as unknown as ListingRevisionRow[]
+      return rows.map(mapListingRevision)
     },
   }
 
@@ -832,6 +1071,6 @@ export function createListingRepositories(db: DatabaseSync): ListingRepositories
   return {
     contentDrafts, assessments, drafts, contentLinks,
     draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings,
-    approvalTasks, manualPackages, products,
+    approvalTasks, manualPackages, publishJobs, platformListings, revisions, products,
   }
 }

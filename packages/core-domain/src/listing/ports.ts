@@ -12,6 +12,9 @@ import type {
   PlatformAttributeMapping,
   PlatformCategoryMapping,
   ManualListingPackage,
+  PlatformListing,
+  ListingRevision,
+  PublishJob,
   PlatformFitAssessment,
 } from './objects.ts'
 
@@ -86,6 +89,34 @@ export interface ApprovalTaskRepository {
 export interface ManualListingPackageRepository {
   insert(pkg: ManualListingPackage): Promise<void>
   list(businessAccountId: string): Promise<ManualListingPackage[]>
+  findById(businessAccountId: string, id: string): Promise<ManualListingPackage | undefined>
+  update(pkg: ManualListingPackage): Promise<void>
+}
+
+export interface PublishJobRepository {
+  insert(job: PublishJob): Promise<void>
+  findById(businessAccountId: string, id: string): Promise<PublishJob | undefined>
+  list(businessAccountId: string): Promise<PublishJob[]>
+  update(job: PublishJob): Promise<void>
+}
+
+export interface PlatformListingRepository {
+  insert(listing: PlatformListing): Promise<void>
+  findById(businessAccountId: string, id: string): Promise<PlatformListing | undefined>
+  findByExternalId(
+    businessAccountId: string,
+    platform: PlatformListing['platform'],
+    storeId: string,
+    externalListingId: string,
+  ): Promise<PlatformListing | undefined>
+  list(businessAccountId: string): Promise<PlatformListing[]>
+  update(listing: PlatformListing): Promise<void>
+}
+
+export interface ListingRevisionRepository {
+  insert(revision: ListingRevision): Promise<void>
+  listByDraft(businessAccountId: string, listingDraftId: string): Promise<ListingRevision[]>
+  listByPlatformListing(businessAccountId: string, platformListingId: string): Promise<ListingRevision[]>
 }
 
 export interface ListingProductSource {
@@ -104,5 +135,8 @@ export interface ListingRepositories {
   attributeMappings: PlatformAttributeMappingRepository
   approvalTasks: ApprovalTaskRepository
   manualPackages: ManualListingPackageRepository
+  publishJobs: PublishJobRepository
+  platformListings: PlatformListingRepository
+  revisions: ListingRevisionRepository
   products: ListingProductSource
 }

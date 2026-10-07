@@ -220,12 +220,91 @@ export interface ApprovalTask {
 export interface ManualListingPackage {
   id: string
   businessAccountId: string
+  platform: Platform
   listingDraftId: string
   productId: string
   storeId: string
+  format: 'json' | 'csv' | 'xlsx' | 'zip' | 'pdf'
   fileRef: string
+  storageRef: string
   payloadJson: string
+  status: 'generated' | 'downloaded' | 'submitted_manually' | 'result_imported' | 'failed'
   createdBy: string
+  createdAt: string
+  submittedBy: string | null
+  submittedAt: string | null
+  externalListingId: string | null
+}
+
+export type PublishAction = 'create' | 'update' | 'withdraw'
+export type PublishJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'needs_manual_action'
+
+export interface PublishJob {
+  id: string
+  businessAccountId: string
+  listingDraftId: string
+  storeId: string
+  platform: Platform
+  action: PublishAction
+  status: PublishJobStatus
+  attemptCount: number
+  maxAttemptCount: number
+  externalJobRef: string | null
+  errorCatalogId: string | null
+  manualPackageId: string | null
+  nextAction: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type PlatformListingOrigin = 'draft_published' | 'imported' | 'manual_recovery'
+export type PlatformListingCoreStatus =
+  | 'submitted'
+  | 'platform_review'
+  | 'live'
+  | 'rejected'
+  | 'inactive'
+  | 'archived'
+
+export interface PlatformListing {
+  id: string
+  businessAccountId: string
+  productId: string
+  listingDraftId: string | null
+  origin: PlatformListingOrigin
+  storeId: string
+  platform: Platform
+  externalListingId: string
+  url: string | null
+  coreStatus: PlatformListingCoreStatus
+  rawStatus: string
+  priceMinor: number
+  currency: string
+  stockQty: number
+  lastSyncedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ListingRevisionStatus = 'created' | 'submitted' | 'accepted' | 'rejected' | 'applied'
+
+export interface ListingRevision {
+  id: string
+  businessAccountId: string
+  platformListingId: string | null
+  listingDraftId: string
+  publishJobId: string | null
+  revision: number
+  payloadJson: string
+  status: ListingRevisionStatus
   createdAt: string
 }
 
