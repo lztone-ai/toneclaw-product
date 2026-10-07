@@ -3,12 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { ProductStorage } from '../src/product-storage.ts'
 import {
+  completeProcurementRefund,
   confirmPayment,
   confirmQuote,
   createPaymentSession,
   createProcurementOrder,
+  deliverProcurement,
   importOrder,
   prepareProviderShipment,
+  redirectPaymentSession,
+  requestProcurementRefund,
   shipProcurement,
 } from '@toneclaw/core-domain'
 
@@ -92,7 +96,9 @@ it('runs the S4 commerce lifecycle through SQLite and persists it across reopen'
     workspaceId: 'ws', actorId: 'seller-1', procurementOrderId: procurement.id,
     paymentUrl: 'https://provider.example/pay', expiresAt: '2026-10-09T10:00:00Z',
   })
-  await first.commerce.paymentSessions.update({ ...session, status: 'redirected', redirectAt: '2026-10-08T10:01:00Z' })
+  const redirected = await redirectPaymentSession(deps, {
+    workspaceId: 'ws', actorId: 'seller-1', paymentSessionId: session.id,
+  })
   const paid = await confirmPayment(deps, {
     workspaceId: 'ws', actorId: 'seller-1', paymentSessionId: session.id,
     providerPaymentId: 'pay-1',
@@ -104,20 +110,40 @@ it('runs the S4 commerce lifecycle through SQLite and persists it across reopen'
     workspaceId: 'ws', actorId: 'provider-operator', procurementOrderId: procurement.id,
     carrier: 'UPS', trackingNumber: '1Z-123', inTransit: true,
   })
+  const delivered = await deliverProcurement(deps, {
+    workspaceId: 'ws', actorId: 'provider-operator', procurementOrderId: procurement.id,
+    deliveredAt: '2026-10-10T10:00:00Z',
+  })
+  const refundRequested = await requestProcurementRefund(deps, {
+    workspaceId: 'ws', actorId: 'seller-1', procurementOrderId: procurement.id,
+    reason: 'damaged on delivery',
+  })
+  const refunded = await completeProcurementRefund(deps, {
+    workspaceId: 'ws', actorId: 'provider-operator', procurementOrderId: procurement.id,
+  })
 
   expect(paid.procurement.status).toBe('payment_confirmed')
+  expect(redirected.status).toBe('redirected')
   expect(shipped.procurement.status).toBe('in_transit')
   expect(shipped.fulfillment.status).toBe('in_transit')
   expect(shipped.procurement.trackingNumber).toBe('1Z-123')
-  expect((await first.commerce.orders.findByExternalId('ws', 'temu', 'TEMU-1'))?.status).toBe('shipped')
-  expect((await first.commerce.paymentSessions.findById('ws', session.id))?.status).toBe('paid_confirmed')
-  expect(first.auditEvents('ws').map(event => event.action)).toContain('procurement.shipped')
+  expect(delivered.procurement.status).toBe('delivered')
+  expect(delivered.fulfillment.status).toBe('delivered')
+  expect(refundRequested.procurement.status).toBe('refund_requested')
+  expect(refunded.procurement.status).toBe('refunded')
+  expect(refunded.session.status).toBe('refunded')
+  expect((await first.commerce.orders.findByExternalId('ws', 'temu', 'TEMU-1'))?.status).toBe('delivered')
+  expect((await first.commerce.paymentSessions.findById('ws', session.id))?.status).toBe('refunded')
+  const auditActions = first.auditEvents('ws').map(event => event.action)
+  expect(auditActions).toContain('procurement.shipped')
+  expect(auditActions).toContain('procurement.delivered')
+  expect(auditActions).toContain('procurement.refunded')
 
   first.close()
   const second = new ProductStorage(path)
   storages.push(second)
-  expect((await second.commerce.orders.findById('ws', firstOrder.id))?.status).toBe('shipped')
-  expect((await second.commerce.procurementOrders.findById('ws', procurement.id))?.status).toBe('in_transit')
+  expect((await second.commerce.orders.findById('ws', firstOrder.id))?.status).toBe('delivered')
+  expect((await second.commerce.procurementOrders.findById('ws', procurement.id))?.status).toBe('refunded')
   expect(await second.commerce.orderItems.listByOrder('ws', firstOrder.id)).toHaveLength(1)
   expect(await second.commerce.fulfillments.listByOrder('ws', firstOrder.id)).toHaveLength(1)
 })

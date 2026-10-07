@@ -3,13 +3,18 @@ import { dirname, join } from 'node:path'
 import type {
   ApprovalTask,
   ContentDraft,
+  Fulfillment,
   ListingDraft,
   ListingDraftVariant,
   MediaAsset,
   MediaVariant,
+  Order,
+  OrderItem,
+  PaymentSession,
   PlatformAttributeMapping,
   PlatformCategoryMapping,
   PlatformListing,
+  ProcurementOrder,
   ListingRevision,
   PublishJob,
   ManualListingPackage,
@@ -83,6 +88,13 @@ export interface SourcingSnapshot {
   platformListings: PlatformListing[]
   revisions: ListingRevision[]
   manualPackages: ManualListingPackage[]
+  commerce: {
+    orders: Order[]
+    orderItems: OrderItem[]
+    fulfillments: Fulfillment[]
+    procurementOrders: ProcurementOrder[]
+    payments: PaymentSession[]
+  }
   platform: {
     connections: {
       id: string
@@ -118,7 +130,7 @@ export function writeSourcingSnapshot(
   const visibleViews = views.slice(0, 500)
   return storage.importBatches.list(workspaceId, 50).then(async (batches) => {
     const products = storage.listProductViews(workspaceId)
-    const [listings, contentDrafts, draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings, approvalTasks, manualPackages, publishJobs, platformListings, revisions] = await Promise.all([
+    const [listings, contentDrafts, draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings, approvalTasks, manualPackages, publishJobs, platformListings, revisions, orders, fulfillments, procurementOrders] = await Promise.all([
       storage.listing.drafts.list(workspaceId),
       storage.listing.contentDrafts.list(workspaceId),
       storage.listing.draftVariants.list(workspaceId),
@@ -131,7 +143,16 @@ export function writeSourcingSnapshot(
       storage.listing.publishJobs.list(workspaceId),
       storage.listing.platformListings.list(workspaceId),
       storage.listing.revisions.list(workspaceId),
+      storage.commerce.orders.list(workspaceId),
+      storage.commerce.fulfillments.list(workspaceId),
+      storage.commerce.procurementOrders.list(workspaceId),
     ])
+    const orderItems = (await Promise.all(
+      orders.map(order => storage.commerce.orderItems.listByOrder(workspaceId, order.id)),
+    )).flat()
+    const payments = (await Promise.all(
+      procurementOrders.map(order => storage.commerce.paymentSessions.listByProcurementOrder(workspaceId, order.id)),
+    )).flat()
     const snapshot: SourcingSnapshot = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -197,6 +218,13 @@ export function writeSourcingSnapshot(
       platformListings,
       revisions,
       manualPackages,
+      commerce: {
+        orders,
+        orderItems,
+        fulfillments,
+        procurementOrders,
+        payments,
+      },
       platform: (() => {
         const connections = storage.listPlatformConnections(workspaceId)
         const storeViews = storage.listPlatformStoreViews(workspaceId)

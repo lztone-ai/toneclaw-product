@@ -22,12 +22,14 @@ import {
   updatePlatformListingStatus,
   validateListingDraft,
   reopenSelection,
+  type CommerceDeps,
   type SelectionDeps,
   type ListingDeps,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
 import { PlatformConnectionService } from './platform/connection-service.ts'
 import { handlePlatformCommand } from './routes/platform.ts'
+import { handleCommerceCommand } from './routes/commerce.ts'
 import type { IdGenerator } from '@toneclaw/core-domain'
 import {
   fingerprintBytes,
@@ -268,6 +270,16 @@ export class ProductImportHost {
       clock: { now: () => new Date() },
       audit: this.storage.audit,
       stores: this.storage.stores,
+    }
+  }
+
+  private commerceDeps(): CommerceDeps {
+    return {
+      ids: new UuidGenerator(),
+      clock: { now: () => new Date() },
+      audit: this.storage.audit,
+      stores: this.storage.stores,
+      ...this.storage.commerce,
     }
   }
 
@@ -596,6 +608,19 @@ export class ProductImportHost {
         sendCommandJson(response, status, payload)
       }, async () => { await this.writeSnapshot() })
       if (platformHandled) return
+      const commerceHandled = await handleCommerceCommand(
+        url.pathname.replace(/^\/api\/v1/, ''),
+        input,
+        this.commerceDeps(),
+        {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          connectedStoreId: (value: unknown) => this.connectedStoreId(value),
+        },
+        (status, payload) => sendCommandJson(response, status, payload),
+        async () => { await this.writeSnapshot() },
+      )
+      if (commerceHandled) return
       sendCommandJson(response, 404, { error: 'command not found' })
     } catch (error) {
       sendCommandJson(response, 400, { error: error instanceof Error ? error.message : 'command rejected' })

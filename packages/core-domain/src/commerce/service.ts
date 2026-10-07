@@ -291,3 +291,104 @@ export async function shipProcurement(
   }, input.actorId)
   return { procurement: updated, fulfillment: updatedFulfillment }
 }
+
+export async function redirectPaymentSession(
+  deps: CommerceDeps,
+  input: { workspaceId: string; actorId: string; paymentSessionId: string },
+): Promise<PaymentSession> {
+  const session = await deps.paymentSessions.findById(input.workspaceId, input.paymentSessionId)
+  if (session === undefined) throw new Error(`payment session not found: ${input.paymentSessionId}`)
+  if (session.status !== 'created') {
+    throw new Error(`payment redirect requires created, got ${session.status}`)
+  }
+  const now = deps.clock.now().toISOString()
+  const redirected: PaymentSession = {
+    ...session, status: 'redirected', redirectAt: now, updatedAt: now,
+  }
+  await deps.paymentSessions.update(redirected)
+  auditEvent(deps, input.workspaceId, 'payment.redirected', 'PaymentSession', session.id, {
+    procurementOrderId: session.procurementOrderId,
+  }, input.actorId)
+  return redirected
+}
+
+export async function deliverProcurement(
+  deps: CommerceDeps,
+  input: { workspaceId: string; actorId: string; procurementOrderId: string; deliveredAt?: string },
+): Promise<{ procurement: ProcurementOrder; fulfillment: Fulfillment }> {
+  const procurement = await deps.procurementOrders.findById(input.workspaceId, input.procurementOrderId)
+  if (procurement === undefined || (procurement.status !== 'shipped' && procurement.status !== 'in_transit')) {
+    throw new Error(`delivery requires shipped/in_transit, got ${procurement?.status ?? 'missing'}`)
+  }
+  const fulfillment = await deps.fulfillments.findById(input.workspaceId, procurement.fulfillmentId)
+  if (fulfillment === undefined) throw new Error(`fulfillment not found: ${procurement.fulfillmentId}`)
+  const now = deps.clock.now().toISOString()
+  const deliveredAt = input.deliveredAt ?? now
+  const updated: ProcurementOrder = { ...procurement, status: 'delivered', updatedAt: now }
+  const updatedFulfillment: Fulfillment = {
+    ...fulfillment, status: 'delivered', deliveredAt,
+  }
+  await deps.procurementOrders.update(updated)
+  await deps.fulfillments.update(updatedFulfillment)
+  const order = await deps.orders.findById(input.workspaceId, fulfillment.orderId)
+  if (order !== undefined) {
+    await deps.orders.update({ ...order, status: 'delivered', lastSyncedAt: now })
+  }
+  auditEvent(deps, input.workspaceId, 'procurement.delivered', 'ProcurementOrder', procurement.id, {
+    deliveredAt,
+  }, input.actorId)
+  return { procurement: updated, fulfillment: updatedFulfillment }
+}
+
+export async function requestProcurementRefund(
+  deps: CommerceDeps,
+  input: { workspaceId: string; actorId: string; procurementOrderId: string; reason: string },
+): Promise<{ procurement: ProcurementOrder; session: PaymentSession }> {
+  const procurement = await deps.procurementOrders.findById(input.workspaceId, input.procurementOrderId)
+  if (procurement === undefined) throw new Error(`procurement order not found: ${input.procurementOrderId}`)
+  if (!['payment_confirmed', 'provider_preparing', 'shipped', 'in_transit', 'delivered'].includes(procurement.status)) {
+    throw new Error(`refund request requires a paid fulfillment state, got ${procurement.status}`)
+  }
+  const payments = await deps.paymentSessions.listByProcurementOrder(input.workspaceId, procurement.id)
+  const session = payments.at(-1)
+  if (session?.status !== 'paid_confirmed') {
+    throw new Error('refund request requires paid_confirmed payment')
+  }
+  const now = deps.clock.now().toISOString()
+  const requestedSession: PaymentSession = {
+    ...session, status: 'refund_requested', updatedAt: now,
+  }
+  const requested: ProcurementOrder = { ...procurement, status: 'refund_requested', updatedAt: now }
+  await deps.paymentSessions.update(requestedSession)
+  await deps.procurementOrders.update(requested)
+  auditEvent(deps, input.workspaceId, 'procurement.refund_requested', 'ProcurementOrder', procurement.id, {
+    reason: input.reason,
+  }, input.actorId)
+  return { procurement: requested, session: requestedSession }
+}
+
+export async function completeProcurementRefund(
+  deps: CommerceDeps,
+  input: { workspaceId: string; actorId: string; procurementOrderId: string },
+): Promise<{ procurement: ProcurementOrder; session: PaymentSession }> {
+  const procurement = await deps.procurementOrders.findById(input.workspaceId, input.procurementOrderId)
+  if (procurement === undefined || procurement.status !== 'refund_requested') {
+    throw new Error(`refund completion requires refund_requested, got ${procurement?.status ?? 'missing'}`)
+  }
+  const payments = await deps.paymentSessions.listByProcurementOrder(input.workspaceId, procurement.id)
+  const session = payments.at(-1)
+  if (session?.status !== 'refund_requested') {
+    throw new Error('refund completion requires refund_requested payment')
+  }
+  const now = deps.clock.now().toISOString()
+  const refundedSession: PaymentSession = {
+    ...session, status: 'refunded', updatedAt: now,
+  }
+  const refunded: ProcurementOrder = { ...procurement, status: 'refunded', updatedAt: now }
+  await deps.paymentSessions.update(refundedSession)
+  await deps.procurementOrders.update(refunded)
+  auditEvent(deps, input.workspaceId, 'procurement.refunded', 'ProcurementOrder', procurement.id, {
+    paymentSessionId: session.id,
+  }, input.actorId)
+  return { procurement: refunded, session: refundedSession }
+}

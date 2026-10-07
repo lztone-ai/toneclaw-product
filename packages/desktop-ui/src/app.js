@@ -14,6 +14,10 @@
   const listingNotice = document.getElementById("listing-notice");
   const publishLive = document.getElementById("publish-live");
   const publishNotice = document.getElementById("publish-notice");
+  const ordersLive = document.getElementById("orders-live");
+  const ordersNotice = document.getElementById("orders-notice");
+  const fulfillmentsLive = document.getElementById("fulfillments-live");
+  const fulfillmentsNotice = document.getElementById("fulfillments-notice");
   let currentSnapshot = null;
 
   const activate = (name, group) => {
@@ -90,6 +94,11 @@
     low: "偏低",
     out_of_stock: "缺货",
     unknown: "未知",
+    created: "已创建", quote_pending: "待报价", quote_confirmed: "报价确认",
+    awaiting_payment: "待付款", payment_confirmed: "付款确认", provider_preparing: "备货中",
+    shipped: "已发货", in_transit: "运输中", delivered: "已送达",
+    payment_failed: "付款失败", payment_expired: "付款过期", refund_requested: "退款中",
+    refunded: "已退款", canceled: "已取消", redirected: "已跳转", paid_confirmed: "已确认",
   };
 
   const formatMoney = (minor, currency) => new Intl.NumberFormat("zh-CN", { style: "currency", currency }).format(minor / 100);
@@ -235,6 +244,18 @@
     if (publishNotice === null) return;
     publishNotice.textContent = message;
     publishNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
+  };
+
+  const setOrdersNotice = (message, kind = "") => {
+    if (ordersNotice === null) return;
+    ordersNotice.textContent = message;
+    ordersNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
+  };
+
+  const setFulfillmentsNotice = (message, kind = "") => {
+    if (fulfillmentsNotice === null) return;
+    fulfillmentsNotice.textContent = message;
+    fulfillmentsNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
   };
 
   const renderListings = (snapshot) => {
@@ -481,6 +502,76 @@
     }
   };
 
+  const renderOrders = (snapshot) => {
+    if (ordersLive === null) return;
+    const commerce = snapshot.commerce ?? {};
+    const rows = (commerce.orders ?? []).map((order) => {
+      const itemCount = (commerce.orderItems ?? []).filter((item) => item.orderId === order.id).length;
+      return `<tr>
+        <td><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(order.externalOrderId)} · ${itemCount} 项</small></td>
+        <td><span class="status-pill">${escapeHtml(statusLabels[order.status] ?? order.status)}</span></td>
+        <td>${formatMoney(order.totalMinor, order.currency)}</td>
+        <td>${formatTime(order.placedAt)}</td>
+      </tr>`;
+    }).join("");
+    ordersLive.innerHTML = `<section class="panel"><h2>订单状态</h2>
+      ${rows === "" ? '<div class="empty-card">还没有订单。连接店铺后可人工导入。</div>' : `<div class="table-wrap"><table>
+        <thead><tr><th>订单</th><th>状态</th><th>金额</th><th>下单时间</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+    </section>`;
+  };
+
+  const renderFulfillments = (snapshot) => {
+    if (fulfillmentsLive === null) return;
+    const commerce = snapshot.commerce ?? {};
+    const orders = commerce.orders ?? [];
+    const orderSelect = document.getElementById("procurement-order");
+    if (orderSelect instanceof HTMLSelectElement) {
+      const selected = orderSelect.value;
+      orderSelect.innerHTML = ['<option value="">选择订单</option>']
+        .concat(orders.map((order) => `<option value="${escapeHtml(order.id)}">${escapeHtml(order.orderNumber)} · ${escapeHtml(order.externalOrderId)}</option>`))
+        .join("");
+      if (orders.some((order) => order.id === selected)) orderSelect.value = selected;
+    }
+
+    const cards = (commerce.procurementOrders ?? []).map((order) => {
+      const payment = (commerce.payments ?? [])
+        .filter((candidate) => candidate.procurementOrderId === order.id)
+        .at(-1);
+      let action = "";
+      if (order.status === "quote_pending") {
+        action = `<button type="button" data-procurement-action="quote" data-id="${escapeHtml(order.id)}">确认报价</button>`;
+      } else if (order.status === "quote_confirmed") {
+        action = `<button type="button" data-procurement-action="pay" data-id="${escapeHtml(order.id)}">创建并跳转付款</button>`;
+      } else if (order.status === "awaiting_payment" && payment?.status === "redirected") {
+        action = `<button type="button" data-procurement-action="confirm-payment" data-id="${escapeHtml(order.id)}">确认已收款</button>`;
+      } else if (order.status === "payment_confirmed") {
+        action = `<button type="button" data-procurement-action="prepare" data-id="${escapeHtml(order.id)}">货盘方备货</button>`;
+      } else if (order.status === "provider_preparing") {
+        action = `
+          <div class="filter-grid">
+            <label>物流商<input data-procurement-field="carrier" data-id="${escapeHtml(order.id)}"></label>
+            <label>运单号<input data-procurement-field="tracking" data-id="${escapeHtml(order.id)}"></label>
+          </div>
+          <button type="button" data-procurement-action="ship" data-id="${escapeHtml(order.id)}">发货</button>`;
+      } else if (order.status === "shipped" || order.status === "in_transit") {
+        action = `
+          <button type="button" data-procurement-action="deliver" data-id="${escapeHtml(order.id)}">确认送达</button>
+          <button type="button" data-procurement-action="refund" data-id="${escapeHtml(order.id)}">申请退款</button>`;
+      } else if (order.status === "refund_requested") {
+        action = `<button type="button" data-procurement-action="refund-complete" data-id="${escapeHtml(order.id)}">确认退款完成</button>`;
+      }
+      return `<article class="panel"><h2>采购 ${escapeHtml(order.id.slice(0, 8))}</h2>
+        <dl class="usage-facts">
+          <div><dt>平台订单</dt><dd>${escapeHtml(order.marketplaceOrderId)}</dd></div>
+          <div><dt>状态</dt><dd>${escapeHtml(statusLabels[order.status] ?? order.status)}</dd></div>
+          <div><dt>应付</dt><dd>${formatMoney(order.totalPayableMinor, order.currency)}</dd></div>
+          <div><dt>支付</dt><dd>${escapeHtml(payment ? (statusLabels[payment.status] ?? payment.status) : "—")}</dd></div>
+          <div><dt>运单</dt><dd>${escapeHtml(order.trackingNumber ?? "—")}</dd></div>
+        </dl><div class="actions">${action}</div></article>`;
+    }).join("");
+    fulfillmentsLive.innerHTML = cards || '<section class="panel"><h2>采购履约</h2><div class="empty-card">还没有采购履约记录。</div></section>';
+  };
+
   const generateButton = document.getElementById("listing-generate");
   if (generateButton !== null) {
     generateButton.addEventListener("click", () => { void runListingAction("generate", ""); });
@@ -517,6 +608,120 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error ?? `命令失败（${response.status}）`);
     return payload;
+  };
+
+  const runOrderImport = async () => {
+    const value = (id) => document.getElementById(id)?.value.trim() ?? "";
+    const integer = (id) => Number(document.getElementById(id)?.value ?? "0");
+    setOrdersNotice("正在导入订单…");
+    try {
+      const externalOrderId = value("order-external-id");
+      const orderNumber = value("order-number");
+      if (externalOrderId === "" || orderNumber === "") throw new Error("请填写外部订单号和订单编号");
+      const quantity = integer("order-item-quantity");
+      const unitPriceMinor = integer("order-item-price");
+      if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isInteger(unitPriceMinor) || unitPriceMinor < 0) {
+        throw new Error("订单数量和单价必须有效");
+      }
+      const placedAt = value("order-placed-at");
+      await postProductCommand("/commerce/orders/import", {
+        externalOrderId,
+        orderNumber,
+        rawStatus: value("order-raw-status") || "created",
+        subtotalMinor: integer("order-subtotal"),
+        shippingMinor: integer("order-shipping"),
+        placedAt: placedAt === "" ? new Date().toISOString() : new Date(placedAt).toISOString(),
+        items: [{
+          externalItemId: value("order-item-external-id") || externalOrderId,
+          sku: value("order-item-sku") || "SKU",
+          title: value("order-item-title") || "平台商品",
+          quantity,
+          unitPriceMinor,
+        }],
+      });
+      setOrdersNotice("订单已导入。", "success");
+      await refreshSourcing();
+    } catch (error) {
+      setOrdersNotice(error instanceof Error ? error.message : "订单导入失败。", "error");
+    }
+  };
+
+  const runProcurementCreate = async () => {
+    const value = (id) => document.getElementById(id)?.value.trim() ?? "";
+    const integer = (id) => Number(document.getElementById(id)?.value ?? "0");
+    setFulfillmentsNotice("正在创建采购单…");
+    try {
+      const orderId = value("procurement-order");
+      const quantity = integer("procurement-quantity");
+      const unitCostMinor = integer("procurement-unit-cost");
+      if (orderId === "" || value("procurement-sourcing-item") === "" || value("procurement-supplier") === "") {
+        throw new Error("请选择订单并填写货盘行和供应商");
+      }
+      if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isInteger(unitCostMinor) || unitCostMinor < 0) {
+        throw new Error("采购数量和单价成本必须有效");
+      }
+      const result = await postProductCommand("/commerce/procurements/create", {
+        orderId,
+        sourcingItemId: value("procurement-sourcing-item"),
+        supplierId: value("procurement-supplier"),
+        providerId: value("procurement-provider") || "provider-001",
+        quantity,
+        unitCostMinor,
+        shippingFeeMinor: integer("procurement-shipping-fee"),
+        serviceFeeMinor: integer("procurement-service-fee"),
+      });
+      setFulfillmentsNotice(`采购单已创建，应付 ${result.totalPayableMinor} 分。`, "success");
+      await refreshSourcing();
+    } catch (error) {
+      setFulfillmentsNotice(error instanceof Error ? error.message : "采购创建失败。", "error");
+    }
+  };
+
+  const runProcurementAction = async (action, procurementOrderId) => {
+    const fieldValue = (name) => document
+      .querySelector(`[data-procurement-field="${name}"][data-id="${CSS.escape(procurementOrderId)}"]`)?.value ?? "";
+    try {
+      if (action === "quote") {
+        await postProductCommand("/commerce/procurements/quote/confirm", { procurementOrderId });
+        setFulfillmentsNotice("报价已确认。", "success");
+      } else if (action === "pay") {
+        const paymentRecord = await postProductCommand("/commerce/payments/create", { procurementOrderId });
+        await postProductCommand("/commerce/payments/redirect", { paymentId: paymentRecord.paymentId });
+        setFulfillmentsNotice("付款会话已创建并跳转。", "success");
+      } else if (action === "confirm-payment") {
+        const payment = (currentSnapshot?.commerce?.payments ?? [])
+          .filter((candidate) => candidate.procurementOrderId === procurementOrderId)
+          .at(-1);
+        if (payment === undefined) throw new Error("还没有付款会话");
+        await postProductCommand("/commerce/payments/confirm", { paymentId: payment.id });
+        setFulfillmentsNotice("收款已确认。", "success");
+      } else if (action === "prepare") {
+        await postProductCommand("/commerce/procurements/provider-preparing", { procurementOrderId });
+        setFulfillmentsNotice("货盘方已进入备货。", "success");
+      } else if (action === "ship") {
+        const carrier = fieldValue("carrier");
+        const trackingNumber = fieldValue("tracking");
+        if (carrier === "" || trackingNumber === "") throw new Error("请填写物流商和运单号");
+        await postProductCommand("/commerce/procurements/ship", {
+          procurementOrderId, carrier, trackingNumber, inTransit: true,
+        });
+        setFulfillmentsNotice("采购单已发货。", "success");
+      } else if (action === "deliver") {
+        await postProductCommand("/commerce/procurements/deliver", { procurementOrderId });
+        setFulfillmentsNotice("采购履约已送达。", "success");
+      } else if (action === "refund") {
+        await postProductCommand("/commerce/procurements/refund/request", {
+          procurementOrderId, reason: "seller requested refund",
+        });
+        setFulfillmentsNotice("退款已申请。", "success");
+      } else if (action === "refund-complete") {
+        await postProductCommand("/commerce/procurements/refund/complete", { procurementOrderId });
+        setFulfillmentsNotice("退款已完成。", "success");
+      }
+      await refreshSourcing();
+    } catch (error) {
+      setFulfillmentsNotice(error instanceof Error ? error.message : "履约操作失败。", "error");
+    }
   };
 
   const runSelectionAction = async (button) => {
@@ -571,6 +776,18 @@
       if (target !== null) void runSelectionAction(target);
     });
   }
+  const orderImportButton = document.getElementById("order-import");
+  if (orderImportButton !== null) orderImportButton.addEventListener("click", () => { void runOrderImport(); });
+  const procurementCreateButton = document.getElementById("procurement-create");
+  if (procurementCreateButton !== null) procurementCreateButton.addEventListener("click", () => { void runProcurementCreate(); });
+  if (fulfillmentsLive !== null) {
+    fulfillmentsLive.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("[data-procurement-action]") : null;
+      if (target !== null) {
+        void runProcurementAction(target.getAttribute("data-procurement-action") ?? "", target.getAttribute("data-id") ?? "");
+      }
+    });
+  }
 
   const renderSourcing = (snapshot) => {
     if (sourcingLive === null) return;
@@ -622,6 +839,8 @@
     renderListings(snapshot);
     renderPublishJobs(snapshot);
     renderStores(snapshot.platform);
+    renderOrders(snapshot);
+    renderFulfillments(snapshot);
   };
 
   const storeConnection = document.getElementById("store-connection");

@@ -219,9 +219,30 @@
                 <p>查看 Temu 订单基础状态。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>店铺未连接</h2>
-              <p>连接 Temu 后，这里会显示订单基础状态。当前阶段不做自动发货。</p>
+            <article class="panel">
+              <h2>人工导入订单</h2>
+              <div class="filter-grid">
+                <label>外部订单号<input id="order-external-id"></label>
+                <label>订单编号<input id="order-number"></label>
+                <label>原始状态<input id="order-raw-status" value="created"></label>
+                <label>商品小计（分）<input id="order-subtotal" type="number" min="0" value="0"></label>
+                <label>运费（分）<input id="order-shipping" type="number" min="0" value="0"></label>
+                <label>明细外部 ID<input id="order-item-external-id"></label>
+                <label>SKU<input id="order-item-sku"></label>
+                <label>明细标题<input id="order-item-title"></label>
+                <label>数量<input id="order-item-quantity" type="number" min="1" value="1"></label>
+                <label>单价（分）<input id="order-item-price" type="number" min="0" value="0"></label>
+                <label>下单时间<input id="order-placed-at" type="datetime-local"></label>
+              </div>
+              <div class="actions"><button type="button" id="order-import">导入订单</button></div>
+              <p id="orders-notice" class="notice" aria-live="polite"></p>
+              <p class="context-note">订单会幂等导入到已连接店铺，并生成待履约记录。</p>
+            </article>
+            <div id="orders-live" aria-live="polite">
+              <section class="panel">
+                <h2>订单状态</h2>
+                <div class="empty-card">还没有订单。</div>
+              </section>
             </div>
           </section>
 
@@ -232,10 +253,28 @@
                 <p>查看履约 / 发货状态和异常。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>暂无履约记录</h2>
-              <p>订单产生后，这里显示采购单、付款会话与供应商发货状态。</p>
+            <article class="panel">
+              <h2>创建采购单</h2>
+              <div class="filter-grid">
+                <label>订单<select id="procurement-order"><option value="">选择订单</option></select></label>
+                <label>货盘行 ID<input id="procurement-sourcing-item"></label>
+                <label>供应商 ID<input id="procurement-supplier"></label>
+                <label>货盘方 ID<input id="procurement-provider" value="provider-001"></label>
+                <label>采购数量<input id="procurement-quantity" type="number" min="1" value="1"></label>
+                <label>单价成本（分）<input id="procurement-unit-cost" type="number" min="0" value="0"></label>
+                <label>运费（分）<input id="procurement-shipping-fee" type="number" min="0" value="0"></label>
+                <label>服务费（分）<input id="procurement-service-fee" type="number" min="0" value="0"></label>
+              </div>
+              <div class="actions"><button type="button" id="procurement-create">创建采购单</button></div>
+              <p class="context-note">采购数量、单价成本必须有效；报价确认后应付金额必须大于零。</p>
+            </article>
+            <div id="fulfillments-live" aria-live="polite">
+              <section class="panel">
+                <h2>采购履约</h2>
+                <div class="empty-card">还没有采购履约记录。</div>
+              </section>
             </div>
+            <p id="fulfillments-notice" class="notice" aria-live="polite"></p>
           </section>
 
           <section id="view-usage" class="view" aria-labelledby="usage-title" hidden>
