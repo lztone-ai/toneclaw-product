@@ -119,6 +119,103 @@ export interface ListingDraftContentLink {
   isSelected: boolean
 }
 
+export interface ListingDraftVariant {
+  id: string
+  businessAccountId: string
+  listingDraftId: string
+  productVariantId: string
+  platformVariantKey: string
+  externalVariantId: string | null
+  attributes: PlatformAttributeValue[]
+  priceMinor: number
+  currency: string
+  stockQty: number
+  status: 'draft' | 'validated' | 'approved' | 'submitted' | 'live' | 'rejected' | 'inactive' | 'archived'
+}
+
+export type MediaOwnerType = 'product' | 'product_variant' | 'sourcing_item' | 'supplier' | 'store'
+export type MediaSourceType = 'imported' | 'generated' | 'uploaded'
+export type MediaAssetStatus = 'imported' | 'processing' | 'ready' | 'failed' | 'blocked' | 'archived'
+export type MediaRightsStatus = 'unknown' | 'owned' | 'licensed' | 'restricted'
+
+export interface MediaAsset {
+  id: string
+  businessAccountId: string
+  ownerType: MediaOwnerType
+  ownerId: string
+  mediaType: 'image' | 'video' | 'document'
+  sourceType: MediaSourceType
+  storageRef: string
+  mimeType: string
+  checksum: string
+  width: number | null
+  height: number | null
+  rightsStatus: MediaRightsStatus
+  status: MediaAssetStatus
+}
+
+export type MediaVariantPurpose = 'main' | 'detail' | 'scene' | 'size_chart'
+export type MediaVariantStatus = 'pending' | 'generating' | 'ready' | 'invalid' | 'archived'
+
+export interface MediaVariant {
+  id: string
+  businessAccountId: string
+  mediaAssetId: string
+  platform: Platform
+  purpose: MediaVariantPurpose
+  specKey: string
+  width: number
+  height: number
+  mimeType: string
+  storageRef: string
+  status: MediaVariantStatus
+}
+
+export type PlatformMappingStatus = 'active' | 'inactive' | 'unverified'
+
+export interface PlatformCategoryMapping {
+  id: string
+  businessAccountId: string
+  platform: Platform
+  categoryId: string
+  externalCategoryId: string
+  externalPath: string
+  status: PlatformMappingStatus
+}
+
+export interface PlatformAttributeMapping {
+  id: string
+  businessAccountId: string
+  platform: Platform
+  attributeKey: string
+  attributeName: string
+  externalAttributeKey: string
+  externalAttributeName: string
+  required: boolean
+  valueMapping: Record<string, string> | null
+  status: PlatformMappingStatus
+}
+
+export type ApprovalTaskType =
+  | 'listing_approval'
+  | 'publish_confirmation'
+  | 'high_cost_ai'
+  | 'manual_action'
+export type ApprovalTaskStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'canceled'
+
+export interface ApprovalTask {
+  id: string
+  businessAccountId: string
+  targetType: string
+  targetId: string
+  taskType: ApprovalTaskType
+  status: ApprovalTaskStatus
+  reason: string
+  assignedTo: string | null
+  createdAt: string
+  resolvedAt: string | null
+}
+
 /** Local manual-channel artifact (TAC §14: listing.create may be unavailable in P0). */
 export interface ManualListingPackage {
   id: string
@@ -135,7 +232,9 @@ export interface ManualListingPackage {
 /** Read model consumed by the pure listing lifecycle; storage joins Product + SourcingItem + Variant. */
 export interface ListingProductContext {
   product: Product
+  variantId: string | null
   sku: string | null
+  variantAttributes: PlatformAttributeValue[]
   description: string | null
   categoryLabels: string[]
   imageUrls: string[]

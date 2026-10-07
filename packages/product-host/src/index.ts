@@ -6,10 +6,14 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   adoptListingContent,
-  confirmManualListingPackage,
   createProductFromSelection,
   decide,
+  decideListingApproval,
+  editListingDraft,
   generateListingDraft,
+  generateManualListingPackage,
+  submitListingApproval,
+  updateMediaAsset,
   validateListingDraft,
   reopenSelection,
   type SelectionDeps,
@@ -376,6 +380,29 @@ export class ProductImportHost {
         sendCommandJson(response, 200, { listingDraftId: result.id, status: result.status })
         return
       }
+      if (url.pathname === '/api/v1/listings/edit') {
+        const result = await editListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+          ...(input['title'] === undefined ? {} : { title: requireString(input['title'], 'title') }),
+          ...(input['description'] === undefined ? {} : { description: requireString(input['description'], 'description') }),
+          ...(input['bullets'] === undefined ? {} : { bullets: requireStringArray(input['bullets'], 'bullets') }),
+          ...(input['keywords'] === undefined ? {} : { keywords: requireStringArray(input['keywords'], 'keywords') }),
+          ...(input['platformCategoryId'] === undefined ? {} : {
+            platformCategoryId: requireString(input['platformCategoryId'], 'platformCategoryId'),
+          }),
+          ...(input['attributes'] === undefined ? {} : { attributes: requireAttributes(input['attributes']) }),
+          ...(input['priceMinor'] === undefined ? {} : { priceMinor: requireInteger(input['priceMinor'], 'priceMinor') }),
+          ...(input['stockQty'] === undefined ? {} : { stockQty: requireInteger(input['stockQty'], 'stockQty') }),
+          ...(input['mediaVariantIds'] === undefined ? {} : {
+            mediaVariantIds: requireStringArray(input['mediaVariantIds'], 'mediaVariantIds'),
+          }),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, { listingDraftId: result.id, status: result.status })
+        return
+      }
       if (url.pathname === '/api/v1/listings/validate') {
         const result = await validateListingDraft(this.listingDeps(), {
           workspaceId: this.config.workspaceId,
@@ -386,8 +413,60 @@ export class ProductImportHost {
         sendCommandJson(response, 200, { status: result.status, findings: result.findings })
         return
       }
-      if (url.pathname === '/api/v1/listings/manual-package/confirm') {
-        const result = await confirmManualListingPackage(this.listingDeps(), {
+      if (url.pathname === '/api/v1/listings/approval/submit') {
+        const result = await submitListingApproval(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          status: result.draft.status,
+          approvalTaskId: result.task.id,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/approval/decide') {
+        const decision = input['decision']
+        if (decision !== 'approved' && decision !== 'rejected') throw new Error('decision must be approved or rejected')
+        const result = await decideListingApproval(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+          decision,
+          reason: requireString(input['reason'], 'reason'),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          status: result.draft.status,
+          approvalTaskId: result.task.id,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/media/assets/update') {
+        const result = await updateMediaAsset(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          mediaAssetId: requireString(input['mediaAssetId'], 'mediaAssetId'),
+          actorId: this.config.createdBy,
+          ...(input['rightsStatus'] === undefined ? {} : {
+            rightsStatus: requireEnum(input['rightsStatus'], 'rightsStatus', ['unknown', 'owned', 'licensed', 'restricted'] as const),
+          }),
+          ...(input['status'] === undefined ? {} : {
+            status: requireEnum(input['status'], 'status', ['ready', 'blocked', 'archived'] as const),
+          }),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          mediaAssetId: result.id,
+          rightsStatus: result.rightsStatus,
+          status: result.status,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/manual-package/generate') {
+        const result = await generateManualListingPackage(this.listingDeps(), {
           workspaceId: this.config.workspaceId,
           listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
           actorId: this.config.createdBy,
@@ -452,8 +531,63 @@ export class ProductImportHost {
         await this.writeSnapshot()
         return result
       },
-      confirmManualListingPackage: async (input: { listingDraftId: string }) => {
-        const result = await confirmManualListingPackage(this.listingDeps(), {
+      editListingDraft: async (input: {
+        listingDraftId: string
+        title?: string
+        description?: string
+        bullets?: string[]
+        keywords?: string[]
+        platformCategoryId?: string
+        attributes?: { key: string; value: string; valueType: 'string' | 'number' | 'boolean' }[]
+        priceMinor?: number
+        stockQty?: number
+        mediaVariantIds?: string[]
+      }) => {
+        const result = await editListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          ...input,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      submitListingApproval: async (input: { listingDraftId: string }) => {
+        const result = await submitListingApproval(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: input.listingDraftId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      decideListingApproval: async (input: {
+        listingDraftId: string
+        decision: 'approved' | 'rejected'
+        reason: string
+      }) => {
+        const result = await decideListingApproval(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          ...input,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      updateMediaAsset: async (input: {
+        mediaAssetId: string
+        rightsStatus?: 'unknown' | 'owned' | 'licensed' | 'restricted'
+        status?: 'ready' | 'blocked' | 'archived'
+      }) => {
+        const result = await updateMediaAsset(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          ...input,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      generateManualListingPackage: async (input: { listingDraftId: string }) => {
+        const result = await generateManualListingPackage(this.listingDeps(), {
           workspaceId: this.config.workspaceId,
           listingDraftId: input.listingDraftId,
           actorId: this.config.createdBy,
@@ -557,6 +691,35 @@ function requireDecision(value: unknown): 'approved' | 'rejected' | 'observing' 
 function requireInteger(value: unknown, name: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`${name} must be an integer`)
   return value
+}
+
+function requireStringArray(value: unknown, name: string): string[] {
+  if (!Array.isArray(value) || !value.every(item => typeof item === 'string' && item.trim() !== '')) {
+    throw new Error(`${name} must be an array of non-empty strings`)
+  }
+  return value as string[]
+}
+
+function requireAttributes(value: unknown): { key: string; value: string; valueType: 'string' | 'number' | 'boolean' }[] {
+  if (!Array.isArray(value)) throw new Error('attributes must be an array')
+  return value.map(item => {
+    if (typeof item !== 'object' || item === null) throw new Error('attributes must contain objects')
+    const record = item as Record<string, unknown>
+    const key = requireString(record['key'], 'attribute.key')
+    const attributeValue = requireString(record['value'], 'attribute.value')
+    const valueType = record['valueType']
+    if (valueType !== 'string' && valueType !== 'number' && valueType !== 'boolean') {
+      throw new Error('attribute.valueType must be string, number, or boolean')
+    }
+    return { key, value: attributeValue, valueType }
+  })
+}
+
+function requireEnum<T extends string>(value: unknown, name: string, values: readonly T[]): T {
+  if (typeof value !== 'string' || !(values as readonly string[]).includes(value)) {
+    throw new Error(`${name} must be one of: ${values.join(', ')}`)
+  }
+  return value as T
 }
 
 function sendCommandJson(response: ServerResponse, status: number, body: unknown): void {

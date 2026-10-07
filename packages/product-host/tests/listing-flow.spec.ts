@@ -72,13 +72,36 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
   expect(generated['status']).toBe('draft')
   expect(generated['contentDraftIds']).toHaveLength(4)
 
+  snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
+  expect(snapshot.mediaAssets).toHaveLength(2)
+  expect(snapshot.mediaVariants).toHaveLength(2)
+  expect(snapshot.draftVariants).toHaveLength(1)
+  expect(snapshot.categoryMappings).toHaveLength(1)
+
+  const edited = await post('/listings/edit', {
+    listingDraftId,
+    title: 'Edited Linen storage box',
+    description: 'Governed listing description',
+    platformCategoryId: 'mock-cat-root',
+    attributes: [{ key: 'material', value: 'Linen', valueType: 'string' }],
+    priceMinor: 8990,
+    stockQty: 80,
+  })
+  expect(edited).toMatchObject({ listingDraftId, status: 'draft' })
+
   const adopted = await post('/listings/content/adopt', { listingDraftId })
   expect(adopted).toMatchObject({ listingDraftId, status: 'draft' })
   const validated = await post('/listings/validate', { listingDraftId })
   expect(validated).toMatchObject({ status: 'validated' })
-  const confirmed = await post('/listings/manual-package/confirm', { listingDraftId })
-  expect(confirmed).toMatchObject({ listingDraftId, status: 'approved' })
-  const fileRef = String(confirmed['fileRef'])
+  const submitted = await post('/listings/approval/submit', { listingDraftId })
+  expect(submitted).toMatchObject({ listingDraftId, status: 'waiting_approval' })
+  const approved = await post('/listings/approval/decide', {
+    listingDraftId, decision: 'approved', reason: 'Listing snapshot is complete and compliant',
+  })
+  expect(approved).toMatchObject({ listingDraftId, status: 'approved' })
+  const packaged = await post('/listings/manual-package/generate', { listingDraftId })
+  expect(packaged).toMatchObject({ listingDraftId, status: 'approved' })
+  const fileRef = String(packaged['fileRef'])
   expect(fileRef).toMatch(/^listing-packages\/.+\.json$/)
 
   snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
@@ -90,12 +113,22 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
     bulletsContentDraftId: expect.any(String),
     keywordsContentDraftId: expect.any(String),
   })
-  expect(snapshot.contentDrafts.filter((content: any) => content.productId === productId))
-    .toHaveLength(4)
+  const listing = snapshot.listings[0] as any
+  const selectedContentIds = [
+    listing.titleContentDraftId,
+    listing.descriptionContentDraftId,
+    listing.bulletsContentDraftId,
+    listing.keywordsContentDraftId,
+  ]
+  expect(selectedContentIds.every((id: any) => typeof id === 'string')).toBe(true)
   expect(snapshot.contentDrafts
-    .filter((content: any) => content.productId === productId)
+    .filter((content: any) => selectedContentIds.includes(content.id))
     .every((content: any) => content.status === 'approved')).toBe(true)
+  expect(snapshot.contentDrafts.filter((content: any) => content.productId === productId).length)
+    .toBeGreaterThanOrEqual(6)
   expect(snapshot.manualPackages).toHaveLength(1)
+  expect(snapshot.approvalTasks).toHaveLength(1)
+  expect(snapshot.approvalTasks[0]).toMatchObject({ targetType: 'ListingDraft', status: 'approved' })
 
   const packagePath = join(config.dataDir, fileRef)
   expect(existsSync(packagePath)).toBe(true)
@@ -113,9 +146,10 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
   const auditActions = auditEvents.map(event => event.action)
   expect(auditActions).toEqual(expect.arrayContaining([
     'listing.draft_created',
+    'listing.draft_edited',
     'listing.content_adopted',
     'listing.validation_passed',
-    'listing.approved',
+    'listing.approval_approved',
     'listing.manual_package_created',
   ]))
 })

@@ -368,6 +368,97 @@ const LISTING_GENERATION = `
         ON manual_listing_packages(business_account_id, created_at);
 `
 
+const LISTING_GOVERNANCE = `
+      CREATE TABLE IF NOT EXISTS listing_draft_variants (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        listing_draft_id TEXT NOT NULL,
+        product_variant_id TEXT NOT NULL,
+        platform_variant_key TEXT NOT NULL,
+        external_variant_id TEXT,
+        attributes_json TEXT NOT NULL DEFAULT '[]',
+        price_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        stock_qty INTEGER NOT NULL,
+        status TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_listing_variants_draft
+        ON listing_draft_variants(business_account_id, listing_draft_id);
+      CREATE TABLE IF NOT EXISTS media_assets (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        owner_type TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        storage_ref TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        rights_status TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_media_assets_owner
+        ON media_assets(business_account_id, owner_type, owner_id);
+      CREATE TABLE IF NOT EXISTS media_variants (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        media_asset_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        spec_key TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        mime_type TEXT NOT NULL,
+        storage_ref TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_media_variants_asset
+        ON media_variants(business_account_id, media_asset_id, platform);
+      CREATE TABLE IF NOT EXISTS platform_category_mappings (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        external_category_id TEXT NOT NULL,
+        external_path TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_category_mappings_unique
+        ON platform_category_mappings(business_account_id, platform, category_id);
+      CREATE TABLE IF NOT EXISTS platform_attribute_mappings (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        attribute_key TEXT NOT NULL,
+        attribute_name TEXT NOT NULL,
+        external_attribute_key TEXT NOT NULL,
+        external_attribute_name TEXT NOT NULL,
+        required INTEGER NOT NULL DEFAULT 0,
+        value_mapping_json TEXT,
+        status TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attribute_mappings_unique
+        ON platform_attribute_mappings(business_account_id, platform, attribute_key);
+      CREATE TABLE IF NOT EXISTS approval_tasks (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        task_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        assigned_to TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_approval_tasks_target
+        ON approval_tasks(business_account_id, target_type, target_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approval_tasks_pending
+        ON approval_tasks(business_account_id, status, created_at);
+`
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -392,6 +483,13 @@ export const MIGRATIONS: Migration[] = [
     name: 'listing_generation_slice_d',
     apply: db => {
       db.exec(LISTING_GENERATION)
+    },
+  },
+  {
+    version: 4,
+    name: 'listing_governance_d1',
+    apply: db => {
+      db.exec(LISTING_GOVERNANCE)
     },
   },
 ]

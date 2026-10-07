@@ -1,6 +1,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { ContentDraft, ListingDraft } from '@toneclaw/core-domain'
+import type {
+  ApprovalTask,
+  ContentDraft,
+  ListingDraft,
+  ListingDraftVariant,
+  MediaAsset,
+  MediaVariant,
+  PlatformAttributeMapping,
+  PlatformCategoryMapping,
+} from '@toneclaw/core-domain'
 import type { ProductStorage } from '@toneclaw/product-storage'
 
 export interface SourcingSnapshotItem {
@@ -60,6 +69,12 @@ export interface SourcingSnapshot {
   }[]
   listings: ListingDraft[]
   contentDrafts: ContentDraft[]
+  draftVariants: ListingDraftVariant[]
+  mediaAssets: MediaAsset[]
+  mediaVariants: MediaVariant[]
+  categoryMappings: PlatformCategoryMapping[]
+  attributeMappings: PlatformAttributeMapping[]
+  approvalTasks: ApprovalTask[]
   manualPackages: {
     id: string
     listingDraftId: string
@@ -101,9 +116,15 @@ export function writeSourcingSnapshot(
   const visibleViews = views.slice(0, 500)
   return storage.importBatches.list(workspaceId, 50).then(async (batches) => {
     const products = storage.listProductViews(workspaceId)
-    const [listings, contentDrafts, manualPackages] = await Promise.all([
+    const [listings, contentDrafts, draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings, approvalTasks, manualPackages] = await Promise.all([
       storage.listing.drafts.list(workspaceId),
       storage.listing.contentDrafts.list(workspaceId),
+      storage.listing.draftVariants.list(workspaceId),
+      storage.listing.mediaAssets.list(workspaceId),
+      storage.listing.mediaVariants.list(workspaceId),
+      storage.listing.categoryMappings.list(workspaceId),
+      storage.listing.attributeMappings.listByPlatform(workspaceId, 'temu'),
+      storage.listing.approvalTasks.list(workspaceId),
       storage.listing.manualPackages.list(workspaceId),
     ])
     const snapshot: SourcingSnapshot = {
@@ -161,6 +182,12 @@ export function writeSourcingSnapshot(
       })),
       listings,
       contentDrafts,
+      draftVariants,
+      mediaAssets,
+      mediaVariants,
+      categoryMappings,
+      attributeMappings,
+      approvalTasks,
       manualPackages: manualPackages.map(pkg => ({
         id: pkg.id,
         listingDraftId: pkg.listingDraftId,

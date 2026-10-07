@@ -216,16 +216,12 @@
     ready_for_validation: "待校验",
     validated: "校验通过",
     waiting_approval: "待审批",
-    approved: "已确认",
+    approved: "已批准",
     published_snapshot: "已提交发布",
     archived: "已归档",
   };
-  const listingContentLabels = {
-    title: "标题",
-    description: "描述",
-    bullets: "卖点",
-    keywords: "关键词",
-  };
+  const listingContentLabels = { title: "标题", description: "描述", bullets: "卖点", keywords: "关键词" };
+  const mediaStatusLabels = { imported: "已导入", ready: "可用", blocked: "已阻断", restricted: "受限" };
 
   const setListingNotice = (message, kind = "") => {
     if (listingNotice === null) return;
@@ -247,42 +243,91 @@
     const rows = (snapshot.listings ?? []).map((listing) => {
       const product = products.find((candidate) => candidate.id === listing.productId);
       const pkg = (snapshot.manualPackages ?? []).find((candidate) => candidate.listingDraftId === listing.id);
+      const task = (snapshot.approvalTasks ?? []).find((candidate) =>
+        candidate.targetType === "ListingDraft" && candidate.targetId === listing.id);
+      const variants = (snapshot.draftVariants ?? []).filter((candidate) => candidate.listingDraftId === listing.id);
       const contents = (snapshot.contentDrafts ?? []).filter((candidate) => candidate.productId === listing.productId);
+      const media = (snapshot.mediaVariants ?? []).filter((candidate) => listing.mediaVariantIds.includes(candidate.id))
+        .map((variant) => ({ variant, asset: (snapshot.mediaAssets ?? []).find((asset) => asset.id === variant.mediaAssetId) }));
       const contentHtml = contents.map((content) => `
         <div><dt>${escapeHtml(listingContentLabels[content.contentType] ?? content.contentType)}</dt>
-        <dd>${escapeHtml(listingStatusLabels[content.status] ?? content.status)} · v${content.version}</dd></div>`).join("");
-      let actions = "";
-      if (listing.status === "draft") {
-        actions = `
-          <button type="button" data-listing-action="adopt" data-id="${escapeHtml(listing.id)}">采纳内容</button>
-          <button type="button" data-listing-action="validate" data-id="${escapeHtml(listing.id)}">校验草稿</button>`;
-      } else if (listing.status === "validated") {
-        actions = `<button type="button" data-listing-action="confirm" data-id="${escapeHtml(listing.id)}">确认人工上架包</button>`;
-      } else if (listing.status === "approved" && pkg !== undefined) {
-        actions = `<span class="status-pill">人工上架包 ${escapeHtml(pkg.fileRef)}</span>`;
-      }
+        <dd>v${content.version} · ${escapeHtml(listingStatusLabels[content.status] ?? content.status)}</dd></div>`).join("");
+      const mediaHtml = media.map(({ variant, asset }) => `
+        <div><dt>${escapeHtml(variant.purpose)} · ${escapeHtml(variant.specKey)}</dt>
+        <dd>${escapeHtml(mediaStatusLabels[asset?.rightsStatus ?? asset?.status] ?? asset?.status ?? variant.status)}
+        ${listing.status === "draft" && asset ? ` <button type="button" data-media-action="own" data-id="${escapeHtml(asset.id)}">标记自有</button>` : ""}
+        </dd></div>`).join("");
       const findings = (listing.validationResult ?? []).map((finding) =>
         `<em>${escapeHtml(finding.message)}</em>`).join("");
+      const material = listing.attributes.find((attribute) => attribute.key === "material");
+
+      let governance = "";
+      if (listing.status === "draft") {
+        governance = `
+          <div class="filter-grid">
+            <label>平台标题<input data-listing-field="title" data-id="${escapeHtml(listing.id)}" value="${escapeHtml(listing.title)}"></label>
+            <label>平台类目<input data-listing-field="category" data-id="${escapeHtml(listing.id)}" value="${escapeHtml(listing.platformCategoryId)}"></label>
+            <label>售价（分）<input data-listing-field="price" data-id="${escapeHtml(listing.id)}" type="number" min="1" value="${listing.priceMinor}"></label>
+            <label>库存<input data-listing-field="stock" data-id="${escapeHtml(listing.id)}" type="number" min="0" value="${listing.stockQty}"></label>
+            <label>材质<input data-listing-field="material" data-id="${escapeHtml(listing.id)}" value="${escapeHtml(material?.value ?? "")}"></label>
+          </div>
+          <label class="filter-panel">平台描述<textarea data-listing-field="description" data-id="${escapeHtml(listing.id)}" rows="4">${escapeHtml(listing.description)}</textarea></label>
+          <div class="actions">
+            <button type="button" data-listing-action="edit" data-id="${escapeHtml(listing.id)}">保存草稿</button>
+            <button type="button" data-listing-action="adopt" data-id="${escapeHtml(listing.id)}">采纳内容</button>
+            <button type="button" data-listing-action="validate" data-id="${escapeHtml(listing.id)}">校验草稿</button>
+          </div>`;
+      } else if (listing.status === "validated") {
+        governance = '<div class="actions"><button type="button" data-listing-action="submit-approval" data-id="' + escapeHtml(listing.id) + '">提交审批</button></div>';
+      } else if (listing.status === "waiting_approval") {
+        governance = `
+          <label>审批原因<input data-listing-field="reason" data-id="${escapeHtml(listing.id)}" value="内容快照与平台资料已确认"></label>
+          <div class="actions">
+            <button type="button" data-listing-action="approve" data-id="${escapeHtml(listing.id)}">批准</button>
+            <button type="button" data-listing-action="reject" data-id="${escapeHtml(listing.id)}">拒绝</button>
+          </div>
+          <p class="context-note">${escapeHtml(task?.reason ?? "")}</p>`;
+      } else if (listing.status === "approved" && pkg === undefined) {
+        governance = '<div class="actions"><button type="button" data-listing-action="package" data-id="' + escapeHtml(listing.id) + '">生成人工上架包</button></div>';
+      }
+
       return `
         <article class="panel">
           <h2>${escapeHtml(listing.title)}</h2>
           <dl class="usage-facts">
             <div><dt>状态</dt><dd>${escapeHtml(listingStatusLabels[listing.status] ?? listing.status)}</dd></div>
             <div><dt>商品</dt><dd>${escapeHtml(product?.title ?? listing.productId)}</dd></div>
-            <div><dt>售价</dt><dd>${formatMoney(listing.priceMinor, listing.currency)}</dd></div>
+            <div><dt>Offer</dt><dd>${variants.map((variant) => escapeHtml(variant.platformVariantKey)).join(" · ") || "—"}</dd></div>
+            <div><dt>售价 / 库存</dt><dd>${formatMoney(listing.priceMinor, listing.currency)} · ${listing.stockQty}</dd></div>
             <div><dt>类目</dt><dd>${escapeHtml(listing.platformCategoryId)}</dd></div>
           </dl>
-          <dl class="usage-facts">${contentHtml}</dl>
-          <div class="actions">${actions}</div>
-          ${findings === "" ? "" : `<div class="ai-suggestion">${findings}</div>`}
+          <dl class="usage-facts">${contentHtml}${mediaHtml}</dl>
+          ${governance}
+          ${pkg ? `<p class="context-note">人工上架包：${escapeHtml(pkg.fileRef)}</p>` : ""}
+          ${findings ? `<div class="ai-suggestion">${findings}</div>` : ""}
         </article>`;
     }).join("");
 
     listingsLive.innerHTML = `
       <section class="panel">
-        <h2>Listing 草稿</h2>
+        <h2>Listing 治理</h2>
         ${rows === "" ? '<div class="empty-card">还没有 Listing 草稿。选择商品后点击生成草稿。</div>' : rows}
       </section>`;
+  };
+
+  const readListingEdits = (listingDraftId) => {
+    const value = (name) => document.querySelector(`[data-listing-field="${name}"][data-id="${CSS.escape(listingDraftId)}"]`)?.value ?? "";
+    const material = value("material").trim();
+    const attributes = material === "" ? [] : [{ key: "material", value: material, valueType: "string" }];
+    return {
+      listingDraftId,
+      title: value("title"),
+      description: value("description"),
+      platformCategoryId: value("category"),
+      attributes,
+      priceMinor: Number(value("price")),
+      stockQty: Number(value("stock")),
+    };
   };
 
   const runListingAction = async (action, listingDraftId) => {
@@ -300,20 +345,49 @@
           return;
         }
         await postProductCommand("/listings/generate", { productId });
-        setListingNotice("Listing 草稿已生成，请采纳内容。", "success");
+        setListingNotice("Listing 草稿已生成，请编辑并采纳内容。", "success");
+      } else if (action === "edit") {
+        const input = readListingEdits(listingDraftId);
+        if (!Number.isInteger(input.priceMinor) || input.priceMinor <= 0) throw new Error("售价必须大于零");
+        if (!Number.isInteger(input.stockQty) || input.stockQty < 0) throw new Error("库存不能为负数");
+        await postProductCommand("/listings/edit", input);
+        setListingNotice("草稿已保存，旧评估已标记待更新。", "success");
       } else if (action === "adopt") {
         await postProductCommand("/listings/content/adopt", { listingDraftId });
         setListingNotice("内容已采纳并同步到提交快照。", "success");
       } else if (action === "validate") {
         const result = await postProductCommand("/listings/validate", { listingDraftId });
-        setListingNotice(result.status === "validated" ? "校验通过，可确认上架包。" : "校验未通过，请查看原因。", result.status === "validated" ? "success" : "error");
-      } else if (action === "confirm") {
-        const result = await postProductCommand("/listings/manual-package/confirm", { listingDraftId });
+        setListingNotice(result.status === "validated" ? "校验通过，可提交审批。" : "校验未通过，请查看原因。", result.status === "validated" ? "success" : "error");
+      } else if (action === "submit-approval") {
+        await postProductCommand("/listings/approval/submit", { listingDraftId });
+        setListingNotice("已提交人工审批。", "success");
+      } else if (action === "approve" || action === "reject") {
+        const reasonInput = document.querySelector(`[data-listing-field="reason"][data-id="${CSS.escape(listingDraftId)}"]`);
+        const reason = reasonInput?.value.trim() || "";
+        if (reason === "") throw new Error("请填写审批原因");
+        await postProductCommand("/listings/approval/decide", {
+          listingDraftId, decision: action === "approve" ? "approved" : "rejected", reason,
+        });
+        setListingNotice(action === "approve" ? "Listing 已批准。" : "Listing 已拒绝并退回草稿。", "success");
+      } else if (action === "package") {
+        const result = await postProductCommand("/listings/manual-package/generate", { listingDraftId });
         setListingNotice(`人工上架包已生成：${result.fileRef}`, "success");
       }
       await refreshSourcing();
     } catch (error) {
       setListingNotice(error instanceof Error ? error.message : "Listing 操作失败。", "error");
+    }
+  };
+
+  const runMediaAction = async (action, mediaAssetId) => {
+    try {
+      if (action === "own") {
+        await postProductCommand("/media/assets/update", { mediaAssetId, rightsStatus: "owned", status: "ready" });
+        setListingNotice("媒体版权已标记为自有。", "success");
+        await refreshSourcing();
+      }
+    } catch (error) {
+      setListingNotice(error instanceof Error ? error.message : "媒体治理失败。", "error");
     }
   };
 
@@ -323,12 +397,14 @@
   }
   if (listingsLive !== null) {
     listingsLive.addEventListener("click", (event) => {
-      const target = event.target instanceof Element ? event.target.closest("[data-listing-action]") : null;
+      const target = event.target instanceof Element ? event.target.closest("[data-listing-action],[data-media-action]") : null;
       if (target === null) return;
-      const action = target.getAttribute("data-listing-action");
-      const listingDraftId = target.getAttribute("data-id");
-      if (action === null || listingDraftId === null) return;
-      void runListingAction(action, listingDraftId);
+      const listingAction = target.getAttribute("data-listing-action");
+      const mediaAction = target.getAttribute("data-media-action");
+      const id = target.getAttribute("data-id");
+      if (id === null) return;
+      if (listingAction !== null) void runListingAction(listingAction, id);
+      if (mediaAction !== null) void runMediaAction(mediaAction, id);
     });
   }
 
