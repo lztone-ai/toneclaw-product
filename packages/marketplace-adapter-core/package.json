@@ -1,0 +1,37 @@
+{
+  "name": "@toneclaw/marketplace-adapter-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Marketplace Adapter contract per TAC 12: authorization, store/capability, category/attribute, listing, order, settlement (pure types only).",
+  "license": "UNLICENSED",
+  "toneclaw": {
+    "layer": "product",
+    "kind": "product-library"
+  },
+  "main": "./dist/index.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "dependencies": {
+    "@toneclaw/core-domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}

@@ -269,21 +269,22 @@
             <div class="settings-grid">
               <article class="panel">
                 <h2>店铺连接</h2>
-                <dl>
-                  <div><dt>平台</dt><dd>Temu</dd></div>
-                  <div><dt>模式</dt><dd>半托管</dd></div>
-                  <div><dt>授权状态</dt><dd>NotConnected</dd></div>
-                  <div><dt>同步健康</dt><dd>Idle</dd></div>
-                </dl>
-                <div class="actions"><button type="button" disabled>开始授权（等待开放资质）</button></div>
+                <div id="store-connection">
+                  <p class="empty-card">还没有连接店铺。点击下方按钮开始 Mock 授权。</p>
+                </div>
+                <div class="actions">
+                  <button type="button" id="store-connect">连接店铺（Mock）</button>
+                  <button type="button" id="store-verify">验证连接</button>
+                  <button type="button" id="store-expire">模拟凭证过期</button>
+                  <button type="button" id="store-disconnect">断开连接</button>
+                </div>
+                <p class="context-note">P0 使用 Mock 适配器演示授权与能力探测；真实 Temu 授权等待平台资质（TAC §14）。</p>
+                <p id="store-notice" class="context-note" aria-live="polite"></p>
               </article>
               <article class="panel">
                 <h2>平台能力</h2>
-                <ul class="capability-list">
-                  <li><span>店铺信息</span><em>待确认</em></li>
-                  <li><span>商品 / 类目</span><em>待确认</em></li>
-                  <li><span>上架</span><em>待确认</em></li>
-                  <li><span>订单 / 履约</span><em>待确认</em></li>
+                <ul class="capability-list" id="store-capabilities">
+                  <li><span>连接后探测</span><em>—</em></li>
                 </ul>
               </article>
             </div>

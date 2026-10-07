@@ -18,6 +18,12 @@ function isExactVersion(version) {
 
 const failures = []
 
+// 08:28 dependency-direction edges (11b A0): internal @toneclaw dependencies restricted
+// to specific consumers. A package outside the list must not depend on the key.
+const internalEdgePermissions = {
+  '@toneclaw/marketplace-adapter-core': ['@toneclaw/product-host', '@toneclaw/marketplace-adapter-mock'],
+}
+
 for (const packageDir of packageDirs) {
   const packagePath = join(packageDir, 'package.json')
   const manifest = JSON.parse(await readFile(packagePath, 'utf8'))
@@ -37,7 +43,13 @@ for (const packageDir of packageDirs) {
   const allowed = metadata?.allowedExternalDependencies ?? []
   for (const name of productionDependencies) {
     if (name.startsWith('@deepseek-ai/')) failures.push(`${id}: product package must not depend on ${name}`)
-    if (name.startsWith('@toneclaw/')) continue
+    if (name.startsWith('@toneclaw/')) {
+      const allowedFrom = internalEdgePermissions[name]
+      if (allowedFrom !== undefined && !allowedFrom.includes(manifest.name)) {
+        failures.push(`${id}: dependency on ${name} is not permitted for this package (08:28 edge gate)`)
+      }
+      continue
+    }
     if (!allowed.includes(name)) {
       failures.push(`${id}: external dependency ${name} is not listed in toneclaw.allowedExternalDependencies`)
     }

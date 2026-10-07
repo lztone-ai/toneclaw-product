@@ -57,6 +57,28 @@ export interface SourcingSnapshot {
     createdFromSelectionId: string | null
     createdAt: string
   }[]
+  platform: {
+    connections: {
+      id: string
+      status: string
+      lastVerifiedAt: string
+    }[]
+    stores: {
+      id: string
+      name: string
+      region: string
+      businessMode: string
+      currency: string
+      status: string
+      lastSyncedAt: string | null
+      capabilities: {
+        capabilityKey: string
+        status: string
+        mode: string
+        notes: string | null
+      }[]
+    }[]
+  }
 }
 
 export function writeSourcingSnapshot(
@@ -123,6 +145,32 @@ export function writeSourcingSnapshot(
         createdFromSelectionId: product.createdFromSelectionId,
         createdAt: product.createdAt,
       })),
+      platform: (() => {
+        const connections = storage.listPlatformConnections(workspaceId)
+        const storeViews = storage.listPlatformStoreViews(workspaceId)
+        return {
+          connections: connections.map(connection => ({
+            id: connection.id,
+            status: connection.status,
+            lastVerifiedAt: connection.lastVerifiedAt,
+          })),
+          stores: storeViews.map(({ store, capabilities }) => ({
+            id: store.id,
+            name: store.name,
+            region: store.region,
+            businessMode: store.businessMode,
+            currency: store.currency,
+            status: store.status,
+            lastSyncedAt: store.lastSyncedAt,
+            capabilities: capabilities.map(capability => ({
+              capabilityKey: capability.capabilityKey,
+              status: capability.status,
+              mode: capability.mode,
+              notes: capability.notes,
+            })),
+          })),
+        }
+      })(),
     }
     const path = join(dataDir, 'sourcing.json')
     mkdirSync(dirname(path), { recursive: true })

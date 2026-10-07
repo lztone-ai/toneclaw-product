@@ -321,7 +321,101 @@
       </section>`;
     renderSelection();
     renderProducts();
+    renderStores(snapshot.platform);
   };
+
+  const storeConnection = document.getElementById("store-connection");
+  const storeCapabilities = document.getElementById("store-capabilities");
+  const storeNotice = document.getElementById("store-notice");
+  const setStoreNotice = (message, kind) => {
+    if (storeNotice === null) return;
+    storeNotice.textContent = message;
+    storeNotice.classList.toggle("is-error", kind === "error");
+  };
+
+  const capabilityLabels = {
+    "store.read": "店铺信息",
+    "category.read": "类目读取",
+    "attribute.read": "属性读取",
+    "listing.create": "上架提交",
+    "listing.status.read": "上架状态",
+    "order.read": "订单读取",
+    "fulfillment.read": "履约读取",
+    "settlement.read": "结算读取",
+  };
+
+  const renderStores = (platform) => {
+    if (storeConnection === null || platform === undefined || platform === null) return;
+    const connections = platform.connections ?? [];
+    const stores = platform.stores ?? [];
+    storeConnection.innerHTML = (connections.length === 0
+      ? '<p class="empty-card">还没有连接店铺。</p>'
+      : connections.map((connection) => `
+          <dl class="usage-facts">
+            <div><dt>连接</dt><dd>${escapeHtml(connection.id.slice(0, 8))}…</dd></div>
+            <div><dt>授权状态</dt><dd>${escapeHtml(statusLabels[connection.status] ?? connection.status)}</dd></div>
+            <div><dt>最近验证</dt><dd>${formatTime(connection.lastVerifiedAt)}</dd></div>
+          </dl>`).join(""))
+      + stores.map((store) => `
+          <dl class="usage-facts">
+            <div><dt>店铺</dt><dd>${escapeHtml(store.name)}</dd></div>
+            <div><dt>模式</dt><dd>${escapeHtml(store.businessMode)}</dd></div>
+            <div><dt>地区 / 币种</dt><dd>${escapeHtml(store.region)} · ${escapeHtml(store.currency)}</dd></div>
+            <div><dt>店铺状态</dt><dd>${escapeHtml(statusLabels[store.status] ?? store.status)}</dd></div>
+          </dl>`).join("");
+    if (storeCapabilities !== null) {
+      const capabilityRows = stores.flatMap((store) => store.capabilities).map((capability) => `
+        <li><span>${escapeHtml(capabilityLabels[capability.capabilityKey] ?? capability.capabilityKey)}</span>
+        <em>${escapeHtml(statusLabels[capability.status] ?? capability.status)} · ${escapeHtml(capability.mode)}</em></li>`);
+      storeCapabilities.innerHTML = capabilityRows.length === 0
+        ? '<li><span>连接后探测</span><em>—</em></li>'
+        : capabilityRows.join("");
+    }
+  };
+
+  const runStoreAction = async (action) => {
+    const commands = currentSnapshot?.commands;
+    if (commands === undefined) {
+      setStoreNotice("命令服务尚未就绪。", "error");
+      return;
+    }
+    setStoreNotice("正在执行…");
+    try {
+      if (action === "connect") {
+        const start = await postProductCommand("/platform/connections/start", {});
+        await postProductCommand("/platform/connections/callback", {
+          connectionId: start.connectionId, state: start.state, approved: true,
+        });
+        setStoreNotice("店铺已连接（Mock 授权）。", "success");
+      } else {
+        const connectionId = currentSnapshot?.platform?.connections?.[0]?.id;
+        if (connectionId === undefined) {
+          setStoreNotice("还没有可操作的连接。", "error");
+          return;
+        }
+        if (action === "expire") {
+          await postProductCommand("/platform/connections/expire", { connectionId });
+          setStoreNotice("已模拟凭证过期，请点验证同步状态。", "success");
+        } else {
+          const health = await postProductCommand(`/platform/connections/${action}`, { connectionId });
+          setStoreNotice(`已${action === "verify" ? "验证" : "断开"}：${health.connectionStatus}。`, "success");
+        }
+      }
+      await refreshSourcing();
+    } catch (error) {
+      setStoreNotice(error instanceof Error ? error.message : "命令执行失败。", "error");
+    }
+  };
+
+  for (const [buttonId, action] of [
+    ["store-connect", "connect"],
+    ["store-verify", "verify"],
+    ["store-expire", "expire"],
+    ["store-disconnect", "disconnect"],
+  ]) {
+    const button = document.getElementById(buttonId);
+    if (button !== null) button.addEventListener("click", () => { void runStoreAction(action); });
+  }
 
   const refreshSourcing = () => {
     if (sourcingLive === null) return;

@@ -11,6 +11,8 @@ import {
   type SelectionDeps,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
+import { PlatformConnectionService } from './platform/connection-service.ts'
+import { handlePlatformCommand } from './routes/platform.ts'
 import type { IdGenerator } from '@toneclaw/core-domain'
 import {
   fingerprintBytes,
@@ -57,6 +59,7 @@ export function apply(ctx: ProductHostContext, config: unknown): () => void {
 
 export class ProductImportHost {
   private readonly storage: ProductStorage
+  private readonly platform: PlatformConnectionService
   private readonly commandToken = randomUUID()
   private watcher: FSWatcher | null = null
   private commandServer: Server | null = null
@@ -74,6 +77,10 @@ export class ProductImportHost {
     mkdirSync(join(config.importDir, 'processed'), { recursive: true })
     mkdirSync(join(config.importDir, 'failed'), { recursive: true })
     this.storage = new ProductStorage(config.dbPath)
+    this.platform = new PlatformConnectionService(this.storage, new UuidGenerator(), {
+      businessAccountId: config.workspaceId,
+      actorId: config.createdBy,
+    }, this.storage.audit)
   }
 
   start(): void {
@@ -310,6 +317,10 @@ export class ProductImportHost {
         sendCommandJson(response, 200, result)
         return
       }
+      const platformHandled = await handlePlatformCommand(url.pathname, input, this.platform, (status, payload) => {
+        sendCommandJson(response, status, payload)
+      }, async () => { await this.writeSnapshot() })
+      if (platformHandled) return
       sendCommandJson(response, 404, { error: 'command not found' })
     } catch (error) {
       sendCommandJson(response, 400, { error: error instanceof Error ? error.message : 'command rejected' })
@@ -318,6 +329,7 @@ export class ProductImportHost {
 
   productApi() {
     return {
+      listPlatformStores: async (workspaceId = this.config.workspaceId) => this.platform.listStores(),
       listSourcingItemViews: async (workspaceId = this.config.workspaceId) =>
         this.storage.listSourcingItemViews(workspaceId),
       getSourcingItemView: async (sourcingItemId: string, workspaceId = this.config.workspaceId) => {
