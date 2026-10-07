@@ -181,20 +181,23 @@
             <header class="page-header">
               <div>
                 <h1 id="listings-title">Listing</h1>
-                <p>管理 Temu Listing 草稿和平台商品状态。</p>
+                <p>从商品生成草稿，采纳内容并确认人工上架包。</p>
               </div>
             </header>
-            <div class="status-grid">
-              <article class="status-card"><h2>待确认</h2><strong>0</strong></article>
-              <article class="status-card"><h2>提交中</h2><strong>0</strong></article>
-              <article class="status-card"><h2>平台审核中</h2><strong>0</strong></article>
-              <article class="status-card"><h2>已上架</h2><strong>0</strong></article>
-              <article class="status-card is-warning"><h2>需人工操作</h2><strong>0</strong></article>
-              <article class="status-card is-danger"><h2>失败 / 被拒</h2><strong>0</strong></article>
-            </div>
-            <div class="empty-panel">
-              <h2>还没有 Listing 草稿</h2>
-              <p>商品与图片补全后，从商品发起 Listing 创建。AI 生成的标题、卖点、描述均为草稿，需经预览 → 编辑 / 确认 → 审批 → 采纳。</p>
+            <article class="panel">
+              <h2>生成 Listing 草稿</h2>
+              <div class="decision-form">
+                <select id="listing-product" aria-label="选择商品"></select>
+                <button type="button" id="listing-generate">生成草稿</button>
+              </div>
+              <p id="listing-notice" class="notice" aria-live="polite"></p>
+              <p class="context-note">系统会先完成平台适配预检，并生成标题、描述、卖点和关键词候选；采纳后会同步到提交快照。</p>
+            </article>
+            <div id="listing-live" aria-live="polite">
+              <section class="panel">
+                <h2>Listing 草稿</h2>
+                <div class="empty-card">还没有 Listing 草稿。</div>
+              </section>
             </div>
           </section>
 

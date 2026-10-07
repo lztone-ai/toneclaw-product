@@ -274,6 +274,100 @@ const PLATFORM_AUTHORIZATION = `
         ON store_capabilities(store_id, capability_key);
 `
 
+const LISTING_GENERATION = `
+      CREATE TABLE IF NOT EXISTS platform_fit_assessments (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        result TEXT NOT NULL,
+        category_mapping_id TEXT,
+        compliance_status TEXT NOT NULL,
+        media_status TEXT NOT NULL,
+        price_status TEXT NOT NULL,
+        risk_score REAL,
+        findings_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL,
+        assessed_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_assessments_product
+        ON platform_fit_assessments(business_account_id, product_id, assessed_at);
+      CREATE TABLE IF NOT EXISTS content_drafts (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        language TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        generated_by TEXT NOT NULL,
+        model TEXT,
+        usage_record_id TEXT,
+        status TEXT NOT NULL,
+        reviewed_by TEXT,
+        reviewed_at TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_content_draft_version
+        ON content_drafts(business_account_id, product_id, content_type, version);
+      CREATE TABLE IF NOT EXISTS listing_drafts (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        platform_fit_assessment_id TEXT NOT NULL,
+        title_content_draft_id TEXT,
+        description_content_draft_id TEXT,
+        bullets_content_draft_id TEXT,
+        keywords_content_draft_id TEXT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        bullets_json TEXT NOT NULL DEFAULT '[]',
+        keywords_json TEXT NOT NULL DEFAULT '[]',
+        platform_category_id TEXT NOT NULL,
+        attributes_json TEXT NOT NULL DEFAULT '[]',
+        price_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        stock_qty INTEGER NOT NULL,
+        media_variant_ids_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL,
+        validation_result_json TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
+        last_synced_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_listing_drafts_account
+        ON listing_drafts(business_account_id, status, created_at);
+      CREATE TABLE IF NOT EXISTS listing_draft_content_links (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        listing_draft_id TEXT NOT NULL,
+        content_draft_id TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        is_selected INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_listing_content_link
+        ON listing_draft_content_links(listing_draft_id, content_type, content_draft_id);
+      CREATE INDEX IF NOT EXISTS idx_listing_content_selected
+        ON listing_draft_content_links(listing_draft_id, content_type, is_selected);
+      CREATE TABLE IF NOT EXISTS manual_listing_packages (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        listing_draft_id TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        file_ref TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_manual_packages_account
+        ON manual_listing_packages(business_account_id, created_at);
+`
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -291,6 +385,13 @@ export const MIGRATIONS: Migration[] = [
       db.exec(PLATFORM_AUTHORIZATION)
       // L-E residue disposal (R-2026-10-06): store_id was always null; catalog import is store-independent.
       dropColumnIfPresent(db, 'sourcing_import_batches', 'store_id')
+    },
+  },
+  {
+    version: 3,
+    name: 'listing_generation_slice_d',
+    apply: db => {
+      db.exec(LISTING_GENERATION)
     },
   },
 ]

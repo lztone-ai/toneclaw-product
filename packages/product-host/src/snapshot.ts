@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { ContentDraft, ListingDraft } from '@toneclaw/core-domain'
 import type { ProductStorage } from '@toneclaw/product-storage'
 
 export interface SourcingSnapshotItem {
@@ -57,6 +58,14 @@ export interface SourcingSnapshot {
     createdFromSelectionId: string | null
     createdAt: string
   }[]
+  listings: ListingDraft[]
+  contentDrafts: ContentDraft[]
+  manualPackages: {
+    id: string
+    listingDraftId: string
+    fileRef: string
+    createdAt: string
+  }[]
   platform: {
     connections: {
       id: string
@@ -90,8 +99,13 @@ export function writeSourcingSnapshot(
   const views = storage.listSourcingItemViews(workspaceId)
   const allItems = views.map(view => view.item)
   const visibleViews = views.slice(0, 500)
-  return storage.importBatches.list(workspaceId, 50).then((batches) => {
+  return storage.importBatches.list(workspaceId, 50).then(async (batches) => {
     const products = storage.listProductViews(workspaceId)
+    const [listings, contentDrafts, manualPackages] = await Promise.all([
+      storage.listing.drafts.list(workspaceId),
+      storage.listing.contentDrafts.list(workspaceId),
+      storage.listing.manualPackages.list(workspaceId),
+    ])
     const snapshot: SourcingSnapshot = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -144,6 +158,14 @@ export function writeSourcingSnapshot(
         sourcingItemId: product.sourcingItemId,
         createdFromSelectionId: product.createdFromSelectionId,
         createdAt: product.createdAt,
+      })),
+      listings,
+      contentDrafts,
+      manualPackages: manualPackages.map(pkg => ({
+        id: pkg.id,
+        listingDraftId: pkg.listingDraftId,
+        fileRef: pkg.fileRef,
+        createdAt: pkg.createdAt,
       })),
       platform: (() => {
         const connections = storage.listPlatformConnections(workspaceId)

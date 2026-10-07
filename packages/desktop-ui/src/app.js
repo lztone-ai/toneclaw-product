@@ -9,6 +9,9 @@
   const selectionLive = document.getElementById("selection-live");
   const selectionNotice = document.getElementById("selection-notice");
   const productsLive = document.getElementById("products-live");
+  const listingsLive = document.getElementById("listing-live");
+  const listingProduct = document.getElementById("listing-product");
+  const listingNotice = document.getElementById("listing-notice");
   let currentSnapshot = null;
 
   const activate = (name, group) => {
@@ -208,6 +211,127 @@
       </section>`;
   };
 
+  const listingStatusLabels = {
+    draft: "草稿",
+    ready_for_validation: "待校验",
+    validated: "校验通过",
+    waiting_approval: "待审批",
+    approved: "已确认",
+    published_snapshot: "已提交发布",
+    archived: "已归档",
+  };
+  const listingContentLabels = {
+    title: "标题",
+    description: "描述",
+    bullets: "卖点",
+    keywords: "关键词",
+  };
+
+  const setListingNotice = (message, kind = "") => {
+    if (listingNotice === null) return;
+    listingNotice.textContent = message;
+    listingNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
+  };
+
+  const renderListings = (snapshot) => {
+    if (listingsLive === null) return;
+    const products = snapshot.products ?? [];
+    if (listingProduct !== null) {
+      const selected = listingProduct.value;
+      listingProduct.innerHTML = ['<option value="">选择商品</option>']
+        .concat(products.map((product) => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.title)}</option>`))
+        .join("");
+      if (products.some((product) => product.id === selected)) listingProduct.value = selected;
+    }
+
+    const rows = (snapshot.listings ?? []).map((listing) => {
+      const product = products.find((candidate) => candidate.id === listing.productId);
+      const pkg = (snapshot.manualPackages ?? []).find((candidate) => candidate.listingDraftId === listing.id);
+      const contents = (snapshot.contentDrafts ?? []).filter((candidate) => candidate.productId === listing.productId);
+      const contentHtml = contents.map((content) => `
+        <div><dt>${escapeHtml(listingContentLabels[content.contentType] ?? content.contentType)}</dt>
+        <dd>${escapeHtml(listingStatusLabels[content.status] ?? content.status)} · v${content.version}</dd></div>`).join("");
+      let actions = "";
+      if (listing.status === "draft") {
+        actions = `
+          <button type="button" data-listing-action="adopt" data-id="${escapeHtml(listing.id)}">采纳内容</button>
+          <button type="button" data-listing-action="validate" data-id="${escapeHtml(listing.id)}">校验草稿</button>`;
+      } else if (listing.status === "validated") {
+        actions = `<button type="button" data-listing-action="confirm" data-id="${escapeHtml(listing.id)}">确认人工上架包</button>`;
+      } else if (listing.status === "approved" && pkg !== undefined) {
+        actions = `<span class="status-pill">人工上架包 ${escapeHtml(pkg.fileRef)}</span>`;
+      }
+      const findings = (listing.validationResult ?? []).map((finding) =>
+        `<em>${escapeHtml(finding.message)}</em>`).join("");
+      return `
+        <article class="panel">
+          <h2>${escapeHtml(listing.title)}</h2>
+          <dl class="usage-facts">
+            <div><dt>状态</dt><dd>${escapeHtml(listingStatusLabels[listing.status] ?? listing.status)}</dd></div>
+            <div><dt>商品</dt><dd>${escapeHtml(product?.title ?? listing.productId)}</dd></div>
+            <div><dt>售价</dt><dd>${formatMoney(listing.priceMinor, listing.currency)}</dd></div>
+            <div><dt>类目</dt><dd>${escapeHtml(listing.platformCategoryId)}</dd></div>
+          </dl>
+          <dl class="usage-facts">${contentHtml}</dl>
+          <div class="actions">${actions}</div>
+          ${findings === "" ? "" : `<div class="ai-suggestion">${findings}</div>`}
+        </article>`;
+    }).join("");
+
+    listingsLive.innerHTML = `
+      <section class="panel">
+        <h2>Listing 草稿</h2>
+        ${rows === "" ? '<div class="empty-card">还没有 Listing 草稿。选择商品后点击生成草稿。</div>' : rows}
+      </section>`;
+  };
+
+  const runListingAction = async (action, listingDraftId) => {
+    const commands = currentSnapshot?.commands;
+    if (commands === undefined) {
+      setListingNotice("命令服务尚未就绪。", "error");
+      return;
+    }
+    setListingNotice("正在执行…");
+    try {
+      if (action === "generate") {
+        const productId = listingProduct instanceof HTMLSelectElement ? listingProduct.value : "";
+        if (productId === "") {
+          setListingNotice("请先选择商品。", "error");
+          return;
+        }
+        await postProductCommand("/listings/generate", { productId });
+        setListingNotice("Listing 草稿已生成，请采纳内容。", "success");
+      } else if (action === "adopt") {
+        await postProductCommand("/listings/content/adopt", { listingDraftId });
+        setListingNotice("内容已采纳并同步到提交快照。", "success");
+      } else if (action === "validate") {
+        const result = await postProductCommand("/listings/validate", { listingDraftId });
+        setListingNotice(result.status === "validated" ? "校验通过，可确认上架包。" : "校验未通过，请查看原因。", result.status === "validated" ? "success" : "error");
+      } else if (action === "confirm") {
+        const result = await postProductCommand("/listings/manual-package/confirm", { listingDraftId });
+        setListingNotice(`人工上架包已生成：${result.fileRef}`, "success");
+      }
+      await refreshSourcing();
+    } catch (error) {
+      setListingNotice(error instanceof Error ? error.message : "Listing 操作失败。", "error");
+    }
+  };
+
+  const generateButton = document.getElementById("listing-generate");
+  if (generateButton !== null) {
+    generateButton.addEventListener("click", () => { void runListingAction("generate", ""); });
+  }
+  if (listingsLive !== null) {
+    listingsLive.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("[data-listing-action]") : null;
+      if (target === null) return;
+      const action = target.getAttribute("data-listing-action");
+      const listingDraftId = target.getAttribute("data-id");
+      if (action === null || listingDraftId === null) return;
+      void runListingAction(action, listingDraftId);
+    });
+  }
+
   const postProductCommand = async (path, body) => {
     const commands = currentSnapshot?.commands;
     if (commands === undefined) throw new Error("选品命令服务尚未就绪");
@@ -321,6 +445,7 @@
       </section>`;
     renderSelection();
     renderProducts();
+    renderListings(snapshot);
     renderStores(snapshot.platform);
   };
 

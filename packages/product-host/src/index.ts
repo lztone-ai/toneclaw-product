@@ -1,14 +1,19 @@
 /** Cordis plugin entry: assemble local product storage and run the S2 import watcher. */
 import { mkdirSync, watch, type FSWatcher } from 'node:fs'
-import { copyFile, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
+  adoptListingContent,
+  confirmManualListingPackage,
   createProductFromSelection,
   decide,
+  generateListingDraft,
+  validateListingDraft,
   reopenSelection,
   type SelectionDeps,
+  type ListingDeps,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
 import { PlatformConnectionService } from './platform/connection-service.ts'
@@ -246,6 +251,30 @@ export class ProductImportHost {
     }
   }
 
+  private listingDeps(): ListingDeps {
+    return {
+      ...this.storage.listing,
+      ids: new UuidGenerator(),
+      clock: { now: () => new Date() },
+      audit: this.storage.audit,
+      stores: this.storage.stores,
+    }
+  }
+
+  private async connectedStoreId(storeId: unknown): Promise<string> {
+    if (storeId !== undefined && storeId !== null && storeId !== '') return requireString(storeId, 'storeId')
+    const stores = await this.storage.stores.list(this.config.workspaceId)
+    const store = stores.find(candidate => candidate.platform === 'temu' && candidate.status === 'connected')
+    if (store === undefined) throw new Error('no connected Temu store')
+    return store.id
+  }
+
+  private async writeManualPackage(pkg: { fileRef: string; payloadJson: string }): Promise<void> {
+    const path = join(this.config.dataDir, pkg.fileRef)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, pkg.payloadJson, 'utf8')
+  }
+
   private async handleCommandRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const origin = request.headers.origin
     if (origin !== undefined && origin !== PRODUCT_UI_ORIGIN && origin !== 'null') {
@@ -317,6 +346,62 @@ export class ProductImportHost {
         sendCommandJson(response, 200, result)
         return
       }
+      if (url.pathname === '/api/v1/listings/generate') {
+        const result = await generateListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          productId: requireString(input['productId'], 'productId'),
+          storeId: await this.connectedStoreId(input['storeId']),
+          actorId: this.config.createdBy,
+          ...(input['platformCategoryId'] === undefined ? {} : {
+            platformCategoryId: requireString(input['platformCategoryId'], 'platformCategoryId'),
+          }),
+          ...(input['priceMinor'] === undefined ? {} : { priceMinor: requireInteger(input['priceMinor'], 'priceMinor') }),
+          ...(input['stockQty'] === undefined ? {} : { stockQty: requireInteger(input['stockQty'], 'stockQty') }),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          status: result.draft.status,
+          contentDraftIds: result.contentDrafts.map(content => content.id),
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/content/adopt') {
+        const result = await adoptListingContent(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, { listingDraftId: result.id, status: result.status })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/validate') {
+        const result = await validateListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, { status: result.status, findings: result.findings })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/manual-package/confirm') {
+        const result = await confirmManualListingPackage(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeManualPackage(result.pkg)
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          status: result.draft.status,
+          packageId: result.pkg.id,
+          fileRef: result.pkg.fileRef,
+        })
+        return
+      }
       const platformHandled = await handlePlatformCommand(url.pathname, input, this.platform, (status, payload) => {
         sendCommandJson(response, status, payload)
       }, async () => { await this.writeSnapshot() })
@@ -330,6 +415,53 @@ export class ProductImportHost {
   productApi() {
     return {
       listPlatformStores: async (workspaceId = this.config.workspaceId) => this.platform.listStores(),
+      generateListingDraft: async (input: {
+        productId: string
+        storeId?: string
+        platformCategoryId?: string
+        priceMinor?: number
+        stockQty?: number
+      }) => {
+        const result = await generateListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          productId: input.productId,
+          storeId: await this.connectedStoreId(input.storeId),
+          actorId: this.config.createdBy,
+          ...(input.platformCategoryId === undefined ? {} : { platformCategoryId: input.platformCategoryId }),
+          ...(input.priceMinor === undefined ? {} : { priceMinor: input.priceMinor }),
+          ...(input.stockQty === undefined ? {} : { stockQty: input.stockQty }),
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      adoptListingContent: async (input: { listingDraftId: string }) => {
+        const result = await adoptListingContent(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: input.listingDraftId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      validateListingDraft: async (input: { listingDraftId: string }) => {
+        const result = await validateListingDraft(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: input.listingDraftId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        return result
+      },
+      confirmManualListingPackage: async (input: { listingDraftId: string }) => {
+        const result = await confirmManualListingPackage(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: input.listingDraftId,
+          actorId: this.config.createdBy,
+        })
+        await this.writeManualPackage(result.pkg)
+        await this.writeSnapshot()
+        return result
+      },
       listSourcingItemViews: async (workspaceId = this.config.workspaceId) =>
         this.storage.listSourcingItemViews(workspaceId),
       getSourcingItemView: async (sourcingItemId: string, workspaceId = this.config.workspaceId) => {
@@ -419,6 +551,11 @@ function requireDecision(value: unknown): 'approved' | 'rejected' | 'observing' 
   if (value !== 'approved' && value !== 'rejected' && value !== 'observing') {
     throw new Error('decision must be approved, rejected, or observing')
   }
+  return value
+}
+
+function requireInteger(value: unknown, name: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) throw new Error(`${name} must be an integer`)
   return value
 }
 

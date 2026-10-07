@@ -16,6 +16,7 @@ import type {
   PlatformCredential,
   PlatformCredentialRepository,
   PlatformRepositories,
+  ListingRepositories,
   Product,
   ProductRepository,
   SelectionDecision,
@@ -39,6 +40,7 @@ import type {
 } from '@toneclaw/core-domain'
 import { runMigrations } from './migrations.ts'
 import { createPlatformRepositories, listPlatformConnections, listPlatformStoreViews } from './repositories/platform.ts'
+import { createListingRepositories } from './repositories/listing.ts'
 
 interface SourcingItemRow {
   id: string
@@ -322,11 +324,13 @@ function mapSourceRecord(row: SourceRecordRow): SourceRecord {
 export class ProductStorage {
   private readonly db: DatabaseSync
   private readonly platform: PlatformRepositories
+  private readonly listingRepositories: ListingRepositories
 
   constructor(readonly path: string) {
     this.db = new DatabaseSync(path)
     runMigrations(this.db)
     this.platform = createPlatformRepositories(this.db)
+    this.listingRepositories = createListingRepositories(this.db)
   }
 
   /** Raw prepared-statement access for tooling and test seeding. */
@@ -360,6 +364,10 @@ export class ProductStorage {
 
   get storeCapabilities(): StoreCapabilityRepository {
     return this.platform.storeCapabilities
+  }
+
+  get listing(): ListingRepositories {
+    return this.listingRepositories
   }
 
   get sourcingItems(): SourcingItemRepository {
