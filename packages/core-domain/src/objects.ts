@@ -104,7 +104,6 @@ export interface SourcingImportRowError {
 export interface SourcingImportBatch {
   id: string
   businessAccountId: string
-  storeId: null
   format: SourcingImportFormat
   fileName: string
   fileRef: string

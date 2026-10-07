@@ -104,7 +104,6 @@ export function rejectedSourcingImport(
   const batch: SourcingImportBatch = {
     id: batchId,
     businessAccountId: options.workspaceId,
-    storeId: null,
     format: 'csv',
     fileName: options.fileName,
     fileRef: `failed/${batchId}/${options.fileName}`,
@@ -167,7 +166,6 @@ export function parseSourcingCsv(
   const batch: SourcingImportBatch = {
     id: batchId,
     businessAccountId: options.workspaceId,
-    storeId: null,
     format: 'csv',
     fileName: options.fileName,
     fileRef: `processed/${batchId}/${options.fileName}`,

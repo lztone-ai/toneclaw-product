@@ -3,10 +3,19 @@ import { DatabaseSync } from 'node:sqlite'
 import type { AuditSink } from '@toneclaw/core-domain'
 import type {
   AuditEvent,
+  BusinessWorkspace,
+  BusinessWorkspaceRepository,
   Category,
   CategoryRepository,
   DataSource,
   DataSourceRepository,
+  ExternalSellerAccount,
+  ExternalSellerAccountRepository,
+  PlatformConnection,
+  PlatformConnectionRepository,
+  PlatformCredential,
+  PlatformCredentialRepository,
+  PlatformRepositories,
   Product,
   ProductRepository,
   SelectionDecision,
@@ -21,9 +30,15 @@ import type {
   SourcingQualificationRepository,
   SourceRecord,
   SourceRecordRepository,
+  Store,
+  StoreCapability,
+  StoreCapabilityRepository,
+  StoreRepository,
   Supplier,
   SupplierRepository,
 } from '@toneclaw/core-domain'
+import { runMigrations } from './migrations.ts'
+import { createPlatformRepositories, listPlatformConnections, listPlatformStoreViews } from './repositories/platform.ts'
 
 interface SourcingItemRow {
   id: string
@@ -109,7 +124,6 @@ interface SupplierRow {
 interface ImportBatchRow {
   id: string
   business_account_id: string
-  store_id: null
   format: SourcingImportBatch['format']
   file_name: string
   file_ref: string
@@ -276,7 +290,6 @@ function mapImportBatch(row: ImportBatchRow): SourcingImportBatch {
   return {
     id: row.id,
     businessAccountId: row.business_account_id,
-    storeId: row.store_id,
     format: row.format,
     fileName: row.file_name,
     fileRef: row.file_ref,
@@ -308,10 +321,12 @@ function mapSourceRecord(row: SourceRecordRow): SourceRecord {
 
 export class ProductStorage {
   private readonly db: DatabaseSync
+  private readonly platform: PlatformRepositories
 
   constructor(readonly path: string) {
     this.db = new DatabaseSync(path)
-    this.migrate()
+    runMigrations(this.db)
+    this.platform = createPlatformRepositories(this.db)
   }
 
   /** Raw prepared-statement access for tooling and test seeding. */
@@ -323,185 +338,28 @@ export class ProductStorage {
     this.db.exec(sql)
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sourcing_items (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        supplier_id TEXT NOT NULL,
-        data_source_id TEXT NOT NULL,
-        source_record_id TEXT NOT NULL DEFAULT '',
-        external_source_id TEXT,
-        title TEXT NOT NULL,
-        description_raw TEXT,
-        category_labels_json TEXT NOT NULL DEFAULT '[]',
-        currency TEXT NOT NULL,
-        purchase_price_minor INTEGER NOT NULL,
-        suggested_retail_price_minor INTEGER,
-        moq INTEGER,
-        lead_time_days INTEGER,
-        stock_status TEXT NOT NULL,
-        supply_status TEXT NOT NULL,
-        risk_status TEXT NOT NULL,
-        status TEXT NOT NULL,
-        image_urls_json TEXT NOT NULL DEFAULT '[]',
-        sku_attributes_json TEXT,
-        compliance_json TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS selection_decisions (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        sourcing_item_id TEXT NOT NULL,
-        decision TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        scores_json TEXT,
-        decided_by TEXT NOT NULL,
-        decided_at TEXT NOT NULL,
-        status TEXT NOT NULL,
-        result_product_id TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_decisions_item ON selection_decisions(sourcing_item_id, status);
-      CREATE TABLE IF NOT EXISTS products (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        sourcing_item_id TEXT NOT NULL,
-        created_from_selection_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        core_category_id TEXT NOT NULL,
-        currency TEXT NOT NULL,
-        risk_status TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS product_variants (
-        id TEXT PRIMARY KEY,
-        product_id TEXT NOT NULL,
-        sku TEXT NOT NULL,
-        attributes_json TEXT NOT NULL,
-        purchase_price_minor INTEGER NOT NULL,
-        currency TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS audit_events (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        actor_type TEXT NOT NULL,
-        actor_id TEXT NOT NULL,
-        action TEXT NOT NULL,
-        object_type TEXT NOT NULL,
-        object_id TEXT NOT NULL,
-        before TEXT,
-        after TEXT,
-        reason TEXT,
-        source TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        trace_id TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_audit_workspace ON audit_events(workspace_id, occurred_at);
-      CREATE TABLE IF NOT EXISTS data_sources (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        name TEXT NOT NULL,
-        config_ref TEXT,
-        status TEXT NOT NULL,
-        last_synced_at TEXT
-      );
-      CREATE TABLE IF NOT EXISTS suppliers (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        name_normalized TEXT NOT NULL,
-        supplier_url TEXT,
-        code TEXT,
-        country TEXT NOT NULL,
-        contact_name TEXT,
-        contact_channel TEXT,
-        default_currency TEXT NOT NULL,
-        status TEXT NOT NULL,
-        rating INTEGER,
-        notes TEXT
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_workspace_name
-        ON suppliers(business_account_id, name_normalized);
-      CREATE TABLE IF NOT EXISTS categories (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT,
-        name TEXT NOT NULL,
-        path TEXT NOT NULL,
-        level INTEGER NOT NULL,
-        status TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS sourcing_import_batches (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        store_id TEXT,
-        format TEXT NOT NULL,
-        file_name TEXT NOT NULL,
-        file_ref TEXT NOT NULL,
-        fingerprint TEXT NOT NULL,
-        source_batch_id TEXT,
-        total_rows INTEGER NOT NULL,
-        valid_rows INTEGER NOT NULL,
-        failed_rows INTEGER NOT NULL,
-        warning_rows INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        errors_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        created_by TEXT NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_import_batches_idempotency
-        ON sourcing_import_batches(business_account_id, created_by, fingerprint);
-      CREATE TABLE IF NOT EXISTS source_records (
-        id TEXT PRIMARY KEY,
-        business_account_id TEXT NOT NULL,
-        data_source_id TEXT NOT NULL,
-        sourcing_item_id TEXT NOT NULL,
-        external_id TEXT,
-        raw_payload_ref TEXT NOT NULL,
-        checksum TEXT NOT NULL,
-        imported_at TEXT NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_source_records_checksum
-        ON source_records(business_account_id, checksum);
-      CREATE INDEX IF NOT EXISTS idx_source_records_item
-        ON source_records(sourcing_item_id);
-      CREATE TABLE IF NOT EXISTS sourcing_item_media (
-        id TEXT PRIMARY KEY,
-        sourcing_item_id TEXT NOT NULL,
-        media_type TEXT NOT NULL,
-        purpose TEXT NOT NULL,
-        storage_ref TEXT NOT NULL,
-        source_url TEXT,
-        checksum TEXT NOT NULL,
-        rights_status TEXT NOT NULL,
-        status TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_sourcing_media_item ON sourcing_item_media(sourcing_item_id);
-      CREATE TABLE IF NOT EXISTS sourcing_item_qualifications (
-        id TEXT PRIMARY KEY,
-        sourcing_item_id TEXT NOT NULL,
-        qualification_type TEXT NOT NULL,
-        file_ref TEXT NOT NULL,
-        status TEXT NOT NULL,
-        issued_by TEXT,
-        issued_at TEXT,
-        expires_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_sourcing_qualifications_item
-        ON sourcing_item_qualifications(sourcing_item_id);
-    `)
-    this.addColumnIfMissing('sourcing_items', 'source_record_id', "TEXT NOT NULL DEFAULT ''")
-    this.addColumnIfMissing('sourcing_items', 'description_raw', 'TEXT')
+  get workspaces(): BusinessWorkspaceRepository {
+    return this.platform.workspaces
   }
 
-  private addColumnIfMissing(table: string, column: string, definition: string): void {
-    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
-    if (!columns.some(entry => entry.name === column)) {
-      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
-    }
+  get externalSellerAccounts(): ExternalSellerAccountRepository {
+    return this.platform.externalSellerAccounts
+  }
+
+  get platformConnections(): PlatformConnectionRepository {
+    return this.platform.platformConnections
+  }
+
+  get platformCredentials(): PlatformCredentialRepository {
+    return this.platform.platformCredentials
+  }
+
+  get stores(): StoreRepository {
+    return this.platform.stores
+  }
+
+  get storeCapabilities(): StoreCapabilityRepository {
+    return this.platform.storeCapabilities
   }
 
   get sourcingItems(): SourcingItemRepository {
@@ -679,12 +537,12 @@ export class ProductStorage {
       insert: async batch => {
         this.db.prepare(`
           INSERT INTO sourcing_import_batches (
-            id, business_account_id, store_id, format, file_name, file_ref, fingerprint,
+            id, business_account_id, format, file_name, file_ref, fingerprint,
             source_batch_id, total_rows, valid_rows, failed_rows, warning_rows, status,
             errors_json, created_at, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          batch.id, batch.businessAccountId, batch.storeId, batch.format, batch.fileName,
+          batch.id, batch.businessAccountId, batch.format, batch.fileName,
           batch.fileRef, batch.fingerprint, batch.sourceBatchId, batch.totalRows,
           batch.validRows, batch.failedRows, batch.warningRows, batch.status,
           JSON.stringify(batch.errors), batch.createdAt, batch.createdBy,
@@ -939,6 +797,14 @@ export class ProductStorage {
       },
       purchasePriceMinor: costs.get(String(row['id'])) ?? null,
     }))
+  }
+
+  listPlatformStoreViews(workspaceId: string) {
+    return listPlatformStoreViews(this.db, workspaceId)
+  }
+
+  listPlatformConnections(workspaceId: string) {
+    return listPlatformConnections(this.db, workspaceId)
   }
 
   auditEvents(workspaceId: string, limit = 100): AuditEvent[] {
