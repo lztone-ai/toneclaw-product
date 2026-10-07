@@ -523,6 +523,119 @@ const PUBLISHING_CENTER = `
         ON listing_revisions(business_account_id, platform_listing_id, revision);
 `
 
+const COMMERCE_OPERATIONS = `
+      CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        external_order_id TEXT NOT NULL,
+        order_number TEXT NOT NULL,
+        status TEXT NOT NULL,
+        raw_status TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        subtotal_minor INTEGER NOT NULL,
+        shipping_minor INTEGER NOT NULL,
+        discount_minor INTEGER,
+        tax_minor INTEGER,
+        total_minor INTEGER NOT NULL,
+        placed_at TEXT NOT NULL,
+        last_synced_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_external
+        ON orders(business_account_id, platform, external_order_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_store
+        ON orders(business_account_id, store_id, status);
+      CREATE TABLE IF NOT EXISTS order_items (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        product_id TEXT,
+        product_variant_id TEXT,
+        platform_listing_id TEXT,
+        external_item_id TEXT NOT NULL,
+        sku TEXT NOT NULL,
+        title TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_items_order
+        ON order_items(business_account_id, order_id);
+      CREATE TABLE IF NOT EXISTS fulfillments (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        external_fulfillment_id TEXT,
+        fulfillment_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        raw_status TEXT NOT NULL,
+        carrier TEXT,
+        tracking_number TEXT,
+        shipped_at TEXT,
+        delivered_at TEXT,
+        exception_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_fulfillments_order
+        ON fulfillments(business_account_id, order_id, status);
+      CREATE TABLE IF NOT EXISTS procurement_orders (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        marketplace_order_id TEXT NOT NULL,
+        fulfillment_id TEXT NOT NULL,
+        sourcing_item_id TEXT NOT NULL,
+        supplier_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_cost_minor INTEGER NOT NULL,
+        shipping_fee_minor INTEGER NOT NULL,
+        service_fee_minor INTEGER NOT NULL,
+        total_payable_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        quote_confirmed_at TEXT,
+        payment_due_at TEXT,
+        provider_promised_ship_at TEXT,
+        shipped_at TEXT,
+        tracking_number TEXT,
+        carrier TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_procurement_orders_account
+        ON procurement_orders(business_account_id, status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_procurement_orders_order
+        ON procurement_orders(business_account_id, marketplace_order_id);
+      CREATE TABLE IF NOT EXISTS payment_sessions (
+        id TEXT PRIMARY KEY,
+        business_account_id TEXT NOT NULL,
+        procurement_order_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        provider_payment_id TEXT,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payment_url TEXT,
+        payment_reference_no TEXT NOT NULL,
+        expires_at TEXT,
+        redirect_at TEXT,
+        callback_received_at TEXT,
+        confirmed_at TEXT,
+        failure_reason TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_reference
+        ON payment_sessions(business_account_id, payment_reference_no);
+      CREATE INDEX IF NOT EXISTS idx_payment_sessions_procurement
+        ON payment_sessions(business_account_id, procurement_order_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_payment_sessions_status
+        ON payment_sessions(business_account_id, status);
+`
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -568,6 +681,13 @@ export const MIGRATIONS: Migration[] = [
       ensureColumn(db, 'manual_listing_packages', 'submitted_by', 'TEXT')
       ensureColumn(db, 'manual_listing_packages', 'submitted_at', 'TEXT')
       ensureColumn(db, 'manual_listing_packages', 'external_listing_id', 'TEXT')
+    },
+  },
+  {
+    version: 6,
+    name: 'commerce_operations_s4',
+    apply: db => {
+      db.exec(COMMERCE_OPERATIONS)
     },
   },
 ]
