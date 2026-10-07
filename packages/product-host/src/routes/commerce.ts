@@ -38,12 +38,18 @@ function orderItems(value: unknown): Parameters<typeof importOrder>[1]['items'] 
   if (!Array.isArray(value) || value.length === 0) throw new Error('order items are required')
   return value.map(item => {
     const record = item as Record<string, unknown>
+    const productId = optionalString(record['productId'], 'item.productId')
+    const productVariantId = optionalString(record['productVariantId'], 'item.productVariantId')
+    const platformListingId = optionalString(record['platformListingId'], 'item.platformListingId')
     return {
       externalItemId: requireString(record['externalItemId'], 'item.externalItemId'),
       sku: requireString(record['sku'], 'item.sku'),
       title: requireString(record['title'], 'item.title'),
       quantity: requireInteger(record['quantity'], 'item.quantity'),
       unitPriceMinor: requireInteger(record['unitPriceMinor'], 'item.unitPriceMinor'),
+      ...(productId === undefined ? {} : { productId }),
+      ...(productVariantId === undefined ? {} : { productVariantId }),
+      ...(platformListingId === undefined ? {} : { platformListingId }),
     }
   })
 }
