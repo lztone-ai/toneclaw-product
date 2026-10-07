@@ -115,6 +115,7 @@ export interface PlatformListingRepository {
 
 export interface ListingRevisionRepository {
   insert(revision: ListingRevision): Promise<void>
+  list(businessAccountId: string): Promise<ListingRevision[]>
   listByDraft(businessAccountId: string, listingDraftId: string): Promise<ListingRevision[]>
   listByPlatformListing(businessAccountId: string, platformListingId: string): Promise<ListingRevision[]>
 }

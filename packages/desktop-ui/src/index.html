@@ -205,13 +205,11 @@
             <header class="page-header">
               <div>
                 <h1 id="publish-jobs-title">发布任务</h1>
-                <p>追踪平台上架任务和人工降级任务。</p>
+                <p>确认发布、处理人工降级并回填平台结果。</p>
               </div>
             </header>
-            <div class="empty-panel">
-              <h2>还没有发布任务</h2>
-              <p>Listing 确认提交后会在这里跟踪进度。平台能力不足时显示「需要人工上架」：下载上架包 → 复制资料 → 回填平台 Listing ID → 导入平台状态。</p>
-            </div>
+            <div id="publish-live" aria-live="polite"></div>
+            <p id="publish-notice" class="notice" aria-live="polite"></p>
           </section>
 
           <section id="view-orders" class="view" aria-labelledby="orders-title" hidden>

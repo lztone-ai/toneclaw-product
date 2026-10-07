@@ -14,10 +14,13 @@ import type {
   ManualListingPackage,
   MediaAsset,
   MediaVariant,
+  PlatformListing,
   PlatformAttributeMapping,
   PlatformCategoryMapping,
   PlatformAttributeValue,
   PlatformFitAssessment,
+  ListingRevision,
+  PublishJob,
 } from './objects.ts'
 import type {
   ApprovalTaskRepository,
@@ -886,4 +889,310 @@ export async function generateManualListingPackage(
     fileRef: pkg.fileRef,
   }, input.actorId)
   return { draft, pkg }
+}
+
+export async function submitPublishConfirmation(
+  deps: ListingDeps,
+  input: ListingActionInput,
+): Promise<ListingApprovalResult> {
+  const draft = await deps.drafts.findById(input.workspaceId, input.listingDraftId)
+  if (draft === undefined || draft.status !== 'approved') {
+    throw new Error(`publish confirmation requires approved draft, got ${draft?.status ?? 'missing'}`)
+  }
+  const existing = await deps.approvalTasks.findPendingByTarget(
+    input.workspaceId, 'ListingDraft', draft.id, 'publish_confirmation',
+  )
+  if (existing !== undefined) throw new Error(`publish confirmation is already pending: ${existing.id}`)
+  const now = deps.clock.now().toISOString()
+  const task: ApprovalTask = {
+    id: deps.ids.next(),
+    businessAccountId: input.workspaceId,
+    targetType: 'ListingDraft',
+    targetId: draft.id,
+    taskType: 'publish_confirmation',
+    status: 'pending',
+    reason: 'Confirm the approved snapshot before creating a publish job.',
+    assignedTo: null,
+    createdAt: now,
+    resolvedAt: null,
+  }
+  await deps.approvalTasks.insert(task)
+  auditEvent(deps, input.workspaceId, 'listing.publish_confirmation_submitted', 'ListingDraft', draft.id, {
+    approvalTaskId: task.id,
+  }, input.actorId)
+  return { draft, task }
+}
+
+export interface DecidePublishConfirmationInput extends DecideListingApprovalInput {}
+export interface PublishConfirmationResult {
+  draft: ListingDraft
+  task: ApprovalTask
+  job: PublishJob | null
+  revision: ListingRevision | null
+}
+
+export async function decidePublishConfirmation(
+  deps: ListingDeps,
+  input: DecidePublishConfirmationInput,
+): Promise<PublishConfirmationResult> {
+  if (input.reason.trim() === '') throw new Error('publish decision reason is required')
+  const draft = await deps.drafts.findById(input.workspaceId, input.listingDraftId)
+  if (draft === undefined || draft.status !== 'approved') {
+    throw new Error(`publish confirmation requires approved draft, got ${draft?.status ?? 'missing'}`)
+  }
+  const task = await deps.approvalTasks.findPendingByTarget(
+    input.workspaceId, 'ListingDraft', draft.id, 'publish_confirmation',
+  )
+  if (task === undefined) throw new Error('pending publish confirmation not found')
+  const now = deps.clock.now().toISOString()
+  const resolved: ApprovalTask = { ...task, status: input.decision, reason: input.reason, resolvedAt: now }
+  await deps.approvalTasks.update(resolved)
+  if (input.decision === 'rejected') {
+    auditEvent(deps, input.workspaceId, 'listing.publish_confirmation_rejected', 'ListingDraft', draft.id, {
+      approvalTaskId: task.id, reason: input.reason,
+    }, input.actorId)
+    return { draft, task: resolved, job: null, revision: null }
+  }
+
+  const jobId = deps.ids.next()
+  const revisions = await deps.revisions.listByDraft(input.workspaceId, draft.id)
+  const revision: ListingRevision = {
+    id: deps.ids.next(),
+    businessAccountId: input.workspaceId,
+    platformListingId: null,
+    listingDraftId: draft.id,
+    publishJobId: jobId,
+    revision: revisions.reduce((max, item) => Math.max(max, item.revision), 0) + 1,
+    payloadJson: JSON.stringify({ listingDraft: draft, confirmedAt: now }, null, 2),
+    status: 'created',
+    createdAt: now,
+  }
+  await deps.revisions.insert(revision)
+  const job: PublishJob = {
+    id: jobId,
+    businessAccountId: input.workspaceId,
+    listingDraftId: draft.id,
+    storeId: draft.storeId,
+    platform: draft.platform,
+    action: 'create',
+    status: 'queued',
+    attemptCount: 0,
+    maxAttemptCount: 3,
+    externalJobRef: null,
+    errorCatalogId: null,
+    manualPackageId: null,
+    nextAction: 'Probe listing.create capability before submission.',
+    startedAt: null,
+    finishedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await deps.publishJobs.insert(job)
+  auditEvent(deps, input.workspaceId, 'listing.publish_confirmation_approved', 'ListingDraft', draft.id, {
+    approvalTaskId: task.id,
+    publishJobId: job.id,
+    revisionId: revision.id,
+  }, input.actorId)
+  return { draft, task: resolved, job, revision }
+}
+
+export interface ManualFallbackInput {
+  workspaceId: string
+  actorId: string
+  publishJobId: string
+  manualPackageId: string
+  reason: string
+}
+
+export async function markListingPublishManualFallback(
+  deps: ListingDeps,
+  input: ManualFallbackInput,
+): Promise<PublishJob> {
+  if (input.reason.trim() === '') throw new Error('manual fallback reason is required')
+  const job = await deps.publishJobs.findById(input.workspaceId, input.publishJobId)
+  const pkg = await deps.manualPackages.findById(input.workspaceId, input.manualPackageId)
+  if (job === undefined) throw new Error(`publish job not found: ${input.publishJobId}`)
+  if (pkg === undefined) throw new Error(`manual package not found: ${input.manualPackageId}`)
+  if (job.status !== 'queued' && job.status !== 'running') {
+    throw new Error(`manual fallback requires queued/running job, got ${job.status}`)
+  }
+  if (pkg.status !== 'generated' && pkg.status !== 'downloaded') {
+    throw new Error(`manual package must be generated/downloaded, got ${pkg.status}`)
+  }
+  const now = deps.clock.now().toISOString()
+  const updated: PublishJob = {
+    ...job,
+    status: 'needs_manual_action',
+    manualPackageId: pkg.id,
+    nextAction: 'Submit the package on the platform, then import the result.',
+    updatedAt: now,
+  }
+  await deps.publishJobs.update(updated)
+  auditEvent(deps, input.workspaceId, 'listing.publish_manual_fallback', 'PublishJob', job.id, {
+    manualPackageId: pkg.id,
+    reason: input.reason,
+  }, input.actorId)
+  return updated
+}
+
+export async function markManualPackageSubmitted(
+  deps: ListingDeps,
+  input: { workspaceId: string; actorId: string; manualPackageId: string },
+): Promise<ManualListingPackage> {
+  const pkg = await deps.manualPackages.findById(input.workspaceId, input.manualPackageId)
+  if (pkg === undefined) throw new Error(`manual package not found: ${input.manualPackageId}`)
+  if (pkg.status !== 'generated' && pkg.status !== 'downloaded') {
+    throw new Error(`manual package requires generated/downloaded, got ${pkg.status}`)
+  }
+  const now = deps.clock.now().toISOString()
+  const updated: ManualListingPackage = {
+    ...pkg, status: 'submitted_manually', submittedBy: input.actorId, submittedAt: now,
+  }
+  await deps.manualPackages.update(updated)
+  auditEvent(deps, input.workspaceId, 'listing.manual_package_submitted', 'ManualListingPackage', pkg.id, {
+    submittedAt: now,
+  }, input.actorId)
+  return updated
+}
+
+export interface ImportManualListingResultInput {
+  workspaceId: string
+  actorId: string
+  manualPackageId: string
+  externalListingId: string
+  coreStatus: PlatformListing['coreStatus']
+  rawStatus: string
+  url?: string
+}
+
+export interface ManualListingImportResult {
+  platformListing: PlatformListing
+  revision: ListingRevision
+  job: PublishJob | null
+  draft: ListingDraft
+}
+
+export async function importManualListingResult(
+  deps: ListingDeps,
+  input: ImportManualListingResultInput,
+): Promise<ManualListingImportResult> {
+  if (input.externalListingId.trim() === '') throw new Error('externalListingId is required')
+  const pkg = await deps.manualPackages.findById(input.workspaceId, input.manualPackageId)
+  if (pkg === undefined) throw new Error(`manual package not found: ${input.manualPackageId}`)
+  if (pkg.status !== 'submitted_manually') {
+    throw new Error(`manual result import requires submitted_manually, got ${pkg.status}`)
+  }
+  const draft = await deps.drafts.findById(input.workspaceId, pkg.listingDraftId)
+  if (draft === undefined) throw new Error(`listing draft not found: ${pkg.listingDraftId}`)
+  const now = deps.clock.now().toISOString()
+  const job = (await deps.publishJobs.list(input.workspaceId))
+    .find(candidate => candidate.listingDraftId === draft.id && candidate.manualPackageId === pkg.id)
+  const existing = await deps.platformListings.findByExternalId(
+    input.workspaceId, draft.platform, draft.storeId, input.externalListingId,
+  )
+  const platformListing: PlatformListing = existing ?? {
+    id: deps.ids.next(),
+    businessAccountId: input.workspaceId,
+    productId: draft.productId,
+    listingDraftId: draft.id,
+    origin: 'imported',
+    storeId: draft.storeId,
+    platform: draft.platform,
+    externalListingId: input.externalListingId,
+    url: input.url ?? null,
+    coreStatus: input.coreStatus,
+    rawStatus: input.rawStatus,
+    priceMinor: draft.priceMinor,
+    currency: draft.currency,
+    stockQty: draft.stockQty,
+    lastSyncedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  }
+  platformListing.url = input.url ?? platformListing.url
+  platformListing.coreStatus = input.coreStatus
+  platformListing.rawStatus = input.rawStatus
+  platformListing.priceMinor = draft.priceMinor
+  platformListing.stockQty = draft.stockQty
+  platformListing.lastSyncedAt = now
+  platformListing.updatedAt = now
+  if (existing === undefined) await deps.platformListings.insert(platformListing)
+  else await deps.platformListings.update(platformListing)
+
+  const priorRevisions = await deps.revisions.listByDraft(input.workspaceId, draft.id)
+  const revision: ListingRevision = {
+    id: deps.ids.next(),
+    businessAccountId: input.workspaceId,
+    platformListingId: platformListing.id,
+    listingDraftId: draft.id,
+    publishJobId: job?.id ?? null,
+    revision: priorRevisions.reduce((max, item) => Math.max(max, item.revision), 0) + 1,
+    payloadJson: pkg.payloadJson,
+    status: 'applied',
+    createdAt: now,
+  }
+  await deps.revisions.insert(revision)
+  await deps.manualPackages.update({
+    ...pkg, status: 'result_imported', submittedBy: input.actorId, submittedAt: now,
+    externalListingId: input.externalListingId,
+  })
+  const publishedDraft: ListingDraft = {
+    ...draft, status: 'published_snapshot', lastSyncedAt: now, updatedAt: now,
+  }
+  await deps.drafts.update(publishedDraft)
+  let updatedJob: PublishJob | null = null
+  if (job !== undefined) {
+    updatedJob = {
+      ...job,
+      status: 'succeeded',
+      externalJobRef: input.externalListingId,
+      finishedAt: now,
+      nextAction: null,
+      updatedAt: now,
+    }
+    await deps.publishJobs.update(updatedJob)
+  }
+  auditEvent(deps, input.workspaceId, 'listing.manual_result_imported', 'PlatformListing', platformListing.id, {
+    externalListingId: platformListing.externalListingId,
+    coreStatus: platformListing.coreStatus,
+    manualPackageId: pkg.id,
+    publishJobId: job?.id ?? null,
+    revisionId: revision.id,
+  }, input.actorId)
+  return { platformListing, revision, job: updatedJob, draft: publishedDraft }
+}
+
+export interface UpdatePlatformListingStatusInput {
+  workspaceId: string
+  actorId: string
+  platformListingId: string
+  coreStatus: PlatformListing['coreStatus']
+  rawStatus: string
+  url?: string
+}
+
+export async function updatePlatformListingStatus(
+  deps: ListingDeps,
+  input: UpdatePlatformListingStatusInput,
+): Promise<PlatformListing> {
+  const listing = await deps.platformListings.findById(input.workspaceId, input.platformListingId)
+  if (listing === undefined) throw new Error(`platform listing not found: ${input.platformListingId}`)
+  if (listing.coreStatus === 'archived' && input.coreStatus !== 'archived') {
+    throw new Error('archived platform listing is terminal')
+  }
+  const now = deps.clock.now().toISOString()
+  const updated: PlatformListing = {
+    ...listing,
+    coreStatus: input.coreStatus,
+    rawStatus: input.rawStatus,
+    url: input.url ?? listing.url,
+    lastSyncedAt: now,
+    updatedAt: now,
+  }
+  await deps.platformListings.update(updated)
+  auditEvent(deps, input.workspaceId, 'listing.platform_status_updated', 'PlatformListing', listing.id, {
+    coreStatus: updated.coreStatus,
+    rawStatus: updated.rawStatus,
+  }, input.actorId)
+  return updated
 }

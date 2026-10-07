@@ -104,10 +104,41 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
   const fileRef = String(packaged['fileRef'])
   expect(fileRef).toMatch(/^listing-packages\/.+\.json$/)
 
+  const publishSubmitted = await post('/listings/publish-confirmation/submit', { listingDraftId })
+  expect(publishSubmitted).toMatchObject({ listingDraftId })
+  const publishApproved = await post('/listings/publish-confirmation/decide', {
+    listingDraftId, decision: 'approved', reason: 'Approved snapshot is ready for manual publishing',
+  })
+  const publishJobId = String(publishApproved['publishJobId'])
+  expect(publishJobId).not.toBe('')
+  const manualFallback = await post('/listings/publish/manual-fallback', {
+    publishJobId, manualPackageId: packaged['packageId'],
+    reason: 'listing.create capability is unavailable in P0',
+  })
+  expect(manualFallback).toMatchObject({ publishJobId, status: 'needs_manual_action' })
+  const submittedPackage = await post('/listings/manual-package/submit', {
+    manualPackageId: packaged['packageId'],
+  })
+  expect(submittedPackage).toMatchObject({ manualPackageId: packaged['packageId'], status: 'submitted_manually' })
+  const importedResult = await post('/listings/manual-result/import', {
+    manualPackageId: packaged['packageId'],
+    externalListingId: 'MOCK-LISTING-001',
+    coreStatus: 'submitted',
+    rawStatus: '已提交',
+  })
+  expect(importedResult).toMatchObject({
+    listingDraftId, status: 'published_snapshot',
+  })
+  const platformListingId = String(importedResult['platformListingId'])
+  const statusUpdated = await post('/platform-listings/status', {
+    platformListingId, coreStatus: 'live', rawStatus: '在售',
+  })
+  expect(statusUpdated).toMatchObject({ platformListingId, coreStatus: 'live' })
+
   snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
   expect(snapshot.listings).toHaveLength(1)
   expect(snapshot.listings[0]).toMatchObject({
-    id: listingDraftId, productId, storeId, status: 'approved',
+    id: listingDraftId, productId, storeId, status: 'published_snapshot',
     titleContentDraftId: expect.any(String),
     descriptionContentDraftId: expect.any(String),
     bulletsContentDraftId: expect.any(String),
@@ -127,8 +158,15 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
   expect(snapshot.contentDrafts.filter((content: any) => content.productId === productId).length)
     .toBeGreaterThanOrEqual(6)
   expect(snapshot.manualPackages).toHaveLength(1)
-  expect(snapshot.approvalTasks).toHaveLength(1)
-  expect(snapshot.approvalTasks[0]).toMatchObject({ targetType: 'ListingDraft', status: 'approved' })
+  expect(snapshot.approvalTasks).toHaveLength(2)
+  expect(snapshot.approvalTasks.map((task: any) => task.status)).toEqual(['approved', 'approved'])
+  expect(snapshot.publishJobs).toHaveLength(1)
+  expect(snapshot.publishJobs[0]).toMatchObject({ id: publishJobId, status: 'succeeded' })
+  expect(snapshot.platformListings).toHaveLength(1)
+  expect(snapshot.platformListings[0]).toMatchObject({
+    id: platformListingId, externalListingId: 'MOCK-LISTING-001', coreStatus: 'live',
+  })
+  expect(snapshot.revisions).toHaveLength(2)
 
   const packagePath = join(config.dataDir, fileRef)
   expect(existsSync(packagePath)).toBe(true)
@@ -151,5 +189,10 @@ it('generates a listing, adopts content snapshots, validates it, and confirms a 
     'listing.validation_passed',
     'listing.approval_approved',
     'listing.manual_package_created',
+    'listing.publish_confirmation_approved',
+    'listing.publish_manual_fallback',
+    'listing.manual_package_submitted',
+    'listing.manual_result_imported',
+    'listing.platform_status_updated',
   ]))
 })

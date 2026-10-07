@@ -9,6 +9,10 @@ import type {
   MediaVariant,
   PlatformAttributeMapping,
   PlatformCategoryMapping,
+  PlatformListing,
+  ListingRevision,
+  PublishJob,
+  ManualListingPackage,
 } from '@toneclaw/core-domain'
 import type { ProductStorage } from '@toneclaw/product-storage'
 
@@ -75,12 +79,10 @@ export interface SourcingSnapshot {
   categoryMappings: PlatformCategoryMapping[]
   attributeMappings: PlatformAttributeMapping[]
   approvalTasks: ApprovalTask[]
-  manualPackages: {
-    id: string
-    listingDraftId: string
-    fileRef: string
-    createdAt: string
-  }[]
+  publishJobs: PublishJob[]
+  platformListings: PlatformListing[]
+  revisions: ListingRevision[]
+  manualPackages: ManualListingPackage[]
   platform: {
     connections: {
       id: string
@@ -116,7 +118,7 @@ export function writeSourcingSnapshot(
   const visibleViews = views.slice(0, 500)
   return storage.importBatches.list(workspaceId, 50).then(async (batches) => {
     const products = storage.listProductViews(workspaceId)
-    const [listings, contentDrafts, draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings, approvalTasks, manualPackages] = await Promise.all([
+    const [listings, contentDrafts, draftVariants, mediaAssets, mediaVariants, categoryMappings, attributeMappings, approvalTasks, manualPackages, publishJobs, platformListings, revisions] = await Promise.all([
       storage.listing.drafts.list(workspaceId),
       storage.listing.contentDrafts.list(workspaceId),
       storage.listing.draftVariants.list(workspaceId),
@@ -126,6 +128,9 @@ export function writeSourcingSnapshot(
       storage.listing.attributeMappings.listByPlatform(workspaceId, 'temu'),
       storage.listing.approvalTasks.list(workspaceId),
       storage.listing.manualPackages.list(workspaceId),
+      storage.listing.publishJobs.list(workspaceId),
+      storage.listing.platformListings.list(workspaceId),
+      storage.listing.revisions.list(workspaceId),
     ])
     const snapshot: SourcingSnapshot = {
       schemaVersion: 1,
@@ -188,12 +193,10 @@ export function writeSourcingSnapshot(
       categoryMappings,
       attributeMappings,
       approvalTasks,
-      manualPackages: manualPackages.map(pkg => ({
-        id: pkg.id,
-        listingDraftId: pkg.listingDraftId,
-        fileRef: pkg.fileRef,
-        createdAt: pkg.createdAt,
-      })),
+      publishJobs,
+      platformListings,
+      revisions,
+      manualPackages,
       platform: (() => {
         const connections = storage.listPlatformConnections(workspaceId)
         const storeViews = storage.listPlatformStoreViews(workspaceId)

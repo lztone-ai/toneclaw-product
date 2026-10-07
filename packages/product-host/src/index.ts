@@ -9,11 +9,17 @@ import {
   createProductFromSelection,
   decide,
   decideListingApproval,
+  decidePublishConfirmation,
   editListingDraft,
   generateListingDraft,
   generateManualListingPackage,
+  importManualListingResult,
+  markListingPublishManualFallback,
+  markManualPackageSubmitted,
   submitListingApproval,
+  submitPublishConfirmation,
   updateMediaAsset,
+  updatePlatformListingStatus,
   validateListingDraft,
   reopenSelection,
   type SelectionDeps,
@@ -478,6 +484,111 @@ export class ProductImportHost {
           status: result.draft.status,
           packageId: result.pkg.id,
           fileRef: result.pkg.fileRef,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/publish-confirmation/submit') {
+        const result = await submitPublishConfirmation(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          approvalTaskId: result.task.id,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/publish-confirmation/decide') {
+        const decision = input['decision']
+        if (decision !== 'approved' && decision !== 'rejected') {
+          throw new Error('decision must be approved or rejected')
+        }
+        const result = await decidePublishConfirmation(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
+          actorId: this.config.createdBy,
+          decision,
+          reason: requireString(input['reason'], 'reason'),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          listingDraftId: result.draft.id,
+          approvalTaskId: result.task.id,
+          publishJobId: result.job?.id ?? null,
+          revisionId: result.revision?.id ?? null,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/publish/manual-fallback') {
+        const result = await markListingPublishManualFallback(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          publishJobId: requireString(input['publishJobId'], 'publishJobId'),
+          manualPackageId: requireString(input['manualPackageId'], 'manualPackageId'),
+          reason: requireString(input['reason'], 'reason'),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          publishJobId: result.id,
+          status: result.status,
+          manualPackageId: result.manualPackageId,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/manual-package/submit') {
+        const result = await markManualPackageSubmitted(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          manualPackageId: requireString(input['manualPackageId'], 'manualPackageId'),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          manualPackageId: result.id,
+          status: result.status,
+          submittedAt: result.submittedAt,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/listings/manual-result/import') {
+        const result = await importManualListingResult(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          manualPackageId: requireString(input['manualPackageId'], 'manualPackageId'),
+          externalListingId: requireString(input['externalListingId'], 'externalListingId'),
+          coreStatus: requireEnum(input['coreStatus'], 'coreStatus', [
+            'submitted', 'platform_review', 'live', 'rejected', 'inactive', 'archived',
+          ] as const),
+          rawStatus: requireString(input['rawStatus'], 'rawStatus'),
+          ...(input['url'] === undefined ? {} : { url: requireString(input['url'], 'url') }),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          platformListingId: result.platformListing.id,
+          revisionId: result.revision.id,
+          publishJobId: result.job?.id ?? null,
+          listingDraftId: result.draft.id,
+          status: result.draft.status,
+        })
+        return
+      }
+      if (url.pathname === '/api/v1/platform-listings/status') {
+        const result = await updatePlatformListingStatus(this.listingDeps(), {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          platformListingId: requireString(input['platformListingId'], 'platformListingId'),
+          coreStatus: requireEnum(input['coreStatus'], 'coreStatus', [
+            'submitted', 'platform_review', 'live', 'rejected', 'inactive', 'archived',
+          ] as const),
+          rawStatus: requireString(input['rawStatus'], 'rawStatus'),
+          ...(input['url'] === undefined ? {} : { url: requireString(input['url'], 'url') }),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          platformListingId: result.id,
+          coreStatus: result.coreStatus,
+          rawStatus: result.rawStatus,
         })
         return
       }

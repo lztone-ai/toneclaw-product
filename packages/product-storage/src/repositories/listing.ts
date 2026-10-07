@@ -815,6 +815,12 @@ export function createListingRepositories(db: DatabaseSync): ListingRepositories
         revision.payloadJson, revision.status, revision.createdAt,
       )
     },
+    list: async businessAccountId => {
+      const rows = db.prepare(`
+        SELECT * FROM listing_revisions WHERE business_account_id = ? ORDER BY created_at DESC, revision DESC
+      `).all(businessAccountId) as unknown as ListingRevisionRow[]
+      return rows.map(mapListingRevision)
+    },
     listByDraft: async (businessAccountId, listingDraftId) => {
       const rows = db.prepare(`
         SELECT * FROM listing_revisions

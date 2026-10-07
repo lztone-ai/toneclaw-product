@@ -12,6 +12,8 @@
   const listingsLive = document.getElementById("listing-live");
   const listingProduct = document.getElementById("listing-product");
   const listingNotice = document.getElementById("listing-notice");
+  const publishLive = document.getElementById("publish-live");
+  const publishNotice = document.getElementById("publish-notice");
   let currentSnapshot = null;
 
   const activate = (name, group) => {
@@ -229,6 +231,12 @@
     listingNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
   };
 
+  const setPublishNotice = (message, kind = "") => {
+    if (publishNotice === null) return;
+    publishNotice.textContent = message;
+    publishNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
+  };
+
   const renderListings = (snapshot) => {
     if (listingsLive === null) return;
     const products = snapshot.products ?? [];
@@ -289,6 +297,22 @@
           <p class="context-note">${escapeHtml(task?.reason ?? "")}</p>`;
       } else if (listing.status === "approved" && pkg === undefined) {
         governance = '<div class="actions"><button type="button" data-listing-action="package" data-id="' + escapeHtml(listing.id) + '">生成人工上架包</button></div>';
+      } else if (listing.status === "approved" && pkg !== undefined) {
+        const confirmation = (snapshot.approvalTasks ?? []).find((task) => task.targetId === listing.id &&
+          task.taskType === "publish_confirmation" && task.status === "pending");
+        const job = (snapshot.publishJobs ?? []).find((candidate) => candidate.listingDraftId === listing.id);
+        if (confirmation !== undefined) {
+          governance = `
+            <label>发布确认原因<input data-listing-field="publish-reason" data-id="${escapeHtml(listing.id)}" value="已批准快照与人工资料一致"></label>
+            <div class="actions">
+              <button type="button" data-listing-action="publish-approve" data-id="${escapeHtml(listing.id)}">确认发布</button>
+              <button type="button" data-listing-action="publish-reject" data-id="${escapeHtml(listing.id)}">拒绝发布</button>
+            </div>`;
+        } else if (job === undefined) {
+          governance = '<div class="actions"><button type="button" data-listing-action="submit-publish" data-id="' + escapeHtml(listing.id) + '">提交发布确认</button></div>';
+        } else {
+          governance = '<p class="context-note">发布任务已创建，请在发布中心处理人工通道。</p>';
+        }
       }
 
       return `
@@ -372,6 +396,16 @@
       } else if (action === "package") {
         const result = await postProductCommand("/listings/manual-package/generate", { listingDraftId });
         setListingNotice(`人工上架包已生成：${result.fileRef}`, "success");
+      } else if (action === "submit-publish") {
+        await postProductCommand("/listings/publish-confirmation/submit", { listingDraftId });
+        setListingNotice("已提交发布确认。", "success");
+      } else if (action === "publish-approve" || action === "publish-reject") {
+        const reason = document.querySelector(`[data-listing-field="publish-reason"][data-id="${CSS.escape(listingDraftId)}"]`)?.value.trim() || "";
+        if (reason === "") throw new Error("请填写发布确认原因");
+        await postProductCommand("/listings/publish-confirmation/decide", {
+          listingDraftId, decision: action === "publish-approve" ? "approved" : "rejected", reason,
+        });
+        setListingNotice("发布确认已保存。", "success");
       }
       await refreshSourcing();
     } catch (error) {
@@ -391,6 +425,62 @@
     }
   };
 
+  const renderPublishJobs = (snapshot) => {
+    if (publishLive === null) return;
+    const packages = snapshot.manualPackages ?? [];
+    const listings = snapshot.listings ?? [];
+    const rows = (snapshot.publishJobs ?? []).map((job) => {
+      const listing = listings.find((candidate) => candidate.id === job.listingDraftId);
+      const pkg = packages.find((candidate) => candidate.id === job.manualPackageId);
+      let action = "";
+      if (job.status === "queued" && pkg !== undefined) {
+        action = `<button type="button" data-publish-action="manual" data-id="${escapeHtml(job.id)}" data-package-id="${escapeHtml(pkg.id)}">转人工上架</button>`;
+      } else if (job.status === "needs_manual_action" && pkg !== undefined && pkg.status === "submitted_manually") {
+        action = `
+          <div class="filter-grid">
+            <label>平台 Listing ID<input data-publish-field="external-id" data-id="${escapeHtml(job.id)}"></label>
+            <label>核心状态<select data-publish-field="core-status" data-id="${escapeHtml(job.id)}"><option value="submitted">已提交</option><option value="platform_review">审核中</option><option value="live">在售</option><option value="rejected">驳回</option><option value="inactive">下架</option></select></label>
+            <label>原始状态<input data-publish-field="raw-status" data-id="${escapeHtml(job.id)}"></label>
+          </div>
+          <button type="button" data-publish-action="import" data-id="${escapeHtml(job.id)}" data-package-id="${escapeHtml(pkg.id)}">导入结果</button>`;
+      } else if (job.status === "needs_manual_action" && pkg?.status === "generated") {
+        action = `<button type="button" data-publish-action="submit-package" data-id="${escapeHtml(job.id)}" data-package-id="${escapeHtml(pkg.id)}">已人工提交</button>`;
+      }
+      return `<article class="panel"><h2>${escapeHtml(listing?.title ?? job.listingDraftId)}</h2>
+        <dl class="usage-facts"><div><dt>状态</dt><dd>${escapeHtml(job.status)}</dd></div>
+        <div><dt>下一步</dt><dd>${escapeHtml(job.nextAction ?? "—")}</dd></div>
+        <div><dt>人工包</dt><dd>${escapeHtml(pkg?.fileRef ?? "—")}</dd></div></dl>
+        <div class="actions">${action}</div></article>`;
+    }).join("");
+    const platformRows = (snapshot.platformListings ?? []).map((listing) => `
+      <tr><td>${escapeHtml(listing.externalListingId)}</td><td>${escapeHtml(listing.coreStatus)}</td>
+      <td>${escapeHtml(listing.rawStatus)}</td><td>${formatMoney(listing.priceMinor, listing.currency)}</td></tr>`).join("");
+    publishLive.innerHTML = `<section class="panel"><h2>发布任务</h2>${rows || '<div class="empty-card">还没有发布任务。</div>'}</section>
+      <section class="panel"><h2>平台 Listing</h2>${platformRows ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>状态</th><th>原始状态</th><th>价格</th></tr></thead><tbody>${platformRows}</tbody></table></div>` : '<div class="empty-card">还没有平台 Listing。</div>'}</section>`;
+  };
+
+  const runPublishAction = async (action, publishJobId, packageId) => {
+    try {
+      if (action === "manual") {
+        await postProductCommand("/listings/publish/manual-fallback", {
+          publishJobId, manualPackageId: packageId, reason: "listing.create unavailable; use manual export/import",
+        });
+      } else if (action === "submit-package") {
+        await postProductCommand("/listings/manual-package/submit", { manualPackageId: packageId });
+      } else if (action === "import") {
+        const value = (name) => document.querySelector(`[data-publish-field="${name}"][data-id="${CSS.escape(publishJobId)}"]`)?.value ?? "";
+        await postProductCommand("/listings/manual-result/import", {
+          manualPackageId: packageId, externalListingId: value("external-id"),
+          coreStatus: value("core-status"), rawStatus: value("raw-status") || value("core-status"),
+        });
+      }
+      setPublishNotice("发布状态已更新。", "success");
+      await refreshSourcing();
+    } catch (error) {
+      setPublishNotice(error instanceof Error ? error.message : "发布操作失败。", "error");
+    }
+  };
+
   const generateButton = document.getElementById("listing-generate");
   if (generateButton !== null) {
     generateButton.addEventListener("click", () => { void runListingAction("generate", ""); });
@@ -405,6 +495,14 @@
       if (id === null) return;
       if (listingAction !== null) void runListingAction(listingAction, id);
       if (mediaAction !== null) void runMediaAction(mediaAction, id);
+    });
+  }
+  if (publishLive !== null) {
+    publishLive.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("[data-publish-action]") : null;
+      if (target !== null) {
+        void runPublishAction(target.getAttribute("data-publish-action") ?? "", target.getAttribute("data-id") ?? "", target.getAttribute("data-package-id") ?? "");
+      }
     });
   }
 
@@ -522,6 +620,7 @@
     renderSelection();
     renderProducts();
     renderListings(snapshot);
+    renderPublishJobs(snapshot);
     renderStores(snapshot.platform);
   };
 
