@@ -7,6 +7,9 @@ import type { ProductHostConfig } from '../src/config.ts'
 
 const roots: string[] = []
 let activeHost: ProductImportHost | null = null
+const allowAllBillingAuthority = {
+  validateFeature: () => ({ featureKey: 'test-allow', allowed: true }),
+}
 
 afterEach(() => {
   activeHost?.close()
@@ -27,7 +30,7 @@ it('generates a listing, adopts content snapshots, validates it, and auto-publis
     stabilityDelayMs: 0,
     pollIntervalMs: 100,
   }
-  const host = new ProductImportHost({}, config)
+  const host = new ProductImportHost({}, config, allowAllBillingAuthority)
   activeHost = host
   host.startCommandServer()
   const csv = readFileSync(join(__dirname, '../../sourcing-provider/fixtures/valid-minimal.csv'))

@@ -48,11 +48,20 @@ import { normalizeProductHostConfig, type ProductHostConfig } from './config.ts'
 import { writeSourcingSnapshot } from './snapshot.ts'
 
 export const name = 'product-host'
-export const inject: string[] = []
+export const inject: string[] = ['billingAuthority']
 export { normalizeProductHostConfig, writeSourcingSnapshot }
 export type { ProductHostConfig }
 const PRODUCT_UI_ORIGIN = 'dsh-app://product-ui'
 const MAX_COMMAND_BYTES = 64 * 1024
+
+export interface BillingFeatureDecision {
+  featureKey: string
+  allowed: boolean
+}
+
+export interface BillingFeatureAuthority {
+  validateFeature(workspaceId: string, featureKey: string): BillingFeatureDecision | Promise<BillingFeatureDecision>
+}
 
 export interface ProductHostContext {
   logger?: {
@@ -62,6 +71,7 @@ export interface ProductHostContext {
   }
   on?: (event: string, listener: (...args: unknown[]) => void) => void
   productApi?: unknown
+  billingAuthority?: BillingFeatureAuthority
 }
 
 class UuidGenerator implements IdGenerator {
@@ -72,7 +82,10 @@ class UuidGenerator implements IdGenerator {
 
 export function apply(ctx: ProductHostContext, config: unknown): () => void {
   const normalized = normalizeProductHostConfig(config)
-  const host = new ProductImportHost(ctx, normalized)
+  if (ctx.billingAuthority === undefined) {
+    throw new Error('product-host: billingAuthority is required')
+  }
+  const host = new ProductImportHost(ctx, normalized, ctx.billingAuthority)
   host.start()
   ;(ctx as { productApi?: unknown }).productApi = host.productApi()
   ctx.logger?.info?.(`[product-host] import watcher ready: ${normalized.importDir}`)
@@ -94,6 +107,7 @@ export class ProductImportHost {
   constructor(
     private readonly context: ProductHostContext,
     private readonly config: ProductHostConfig,
+    private readonly billingAuthority?: BillingFeatureAuthority,
   ) {
     mkdirSync(config.dataDir, { recursive: true })
     mkdirSync(config.importDir, { recursive: true })
@@ -322,6 +336,13 @@ export class ProductImportHost {
     return store.id
   }
 
+  private async requireFeature(featureKey: string): Promise<void> {
+    const decision = await this.billingAuthority?.validateFeature(this.config.workspaceId, featureKey)
+    if (decision?.allowed !== true) {
+      throw new Error(`subscription feature blocked: ${featureKey}`)
+    }
+  }
+
   private async writeManualPackage(pkg: { fileRef: string; payloadJson: string }): Promise<void> {
     const path = join(this.config.dataDir, pkg.fileRef)
     await mkdir(dirname(path), { recursive: true })
@@ -400,6 +421,7 @@ export class ProductImportHost {
         return
       }
       if (url.pathname === '/api/v1/listings/generate') {
+        await this.requireFeature('listing.generation')
         const result = await generateListingDraft(this.listingDeps(), {
           workspaceId: this.config.workspaceId,
           productId: requireString(input['productId'], 'productId'),
@@ -515,6 +537,7 @@ export class ProductImportHost {
         return
       }
       if (url.pathname === '/api/v1/listings/manual-package/generate') {
+        await this.requireFeature('export.data')
         const result = await generateManualListingPackage(this.listingDeps(), {
           workspaceId: this.config.workspaceId,
           listingDraftId: requireString(input['listingDraftId'], 'listingDraftId'),
@@ -661,6 +684,9 @@ export class ProductImportHost {
           exchangeRates: settings.exchangeRates,
         })
         return
+      }
+      if (url.pathname === '/api/v1/platform/connections/start') {
+        await this.requireFeature('store.temu')
       }
       const platformHandled = await handlePlatformCommand(url.pathname, input, this.platform, (status, payload) => {
         sendCommandJson(response, status, payload)

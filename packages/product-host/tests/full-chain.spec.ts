@@ -12,6 +12,9 @@ const roots: string[] = []
 const stores: BillingStore[] = []
 let activeHost: ProductImportHost | null = null
 let activeStorage: ProductStorage | null = null
+const allowAllBillingAuthority = {
+  validateFeature: () => ({ featureKey: 'test-allow', allowed: true }),
+}
 
 afterEach(() => {
   activeHost?.close()
@@ -37,7 +40,7 @@ it('runs import, selection, AI usage, product creation, and audit as one chain',
   }
   const host = new ProductImportHost({
     logger: { warn: console.warn, error: console.error },
-  }, config)
+  }, config, allowAllBillingAuthority)
   activeHost = host
   host.startCommandServer()
 

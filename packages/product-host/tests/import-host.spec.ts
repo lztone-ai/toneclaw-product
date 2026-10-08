@@ -7,6 +7,9 @@ import type { ProductHostConfig } from '../src/config.ts'
 
 let root = ''
 let config: ProductHostConfig
+const allowAllBillingAuthority = {
+  validateFeature: () => ({ featureKey: 'test-allow', allowed: true }),
+}
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'toneclaw-product-host-'))
@@ -24,7 +27,7 @@ beforeEach(() => {
 
 describe('product import host', () => {
   it('imports a stable CSV, archives it, and publishes the sourcing snapshot', async () => {
-    const host = new ProductImportHost({}, config)
+    const host = new ProductImportHost({}, config, allowAllBillingAuthority)
     const csv = readFileSync(join(__dirname, '../../sourcing-provider/fixtures/valid-minimal.csv'))
     writeFileSync(join(config.importDir, 'catalog.csv'), csv)
     await host.scanNow()

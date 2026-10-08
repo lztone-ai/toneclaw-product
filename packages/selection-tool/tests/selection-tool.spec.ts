@@ -35,6 +35,7 @@ function makeView(overrides: Record<string, unknown> = {}) {
 function makeHarness({ chunks = [] as any[], view = makeView() as any, persistError = undefined as unknown } = {}) {
   const registered: any[] = []
   const authority = {
+    validateFeature: vi.fn(async () => ({ featureKey: 'ai.generation', allowed: true })),
     reserve: vi.fn(async () => ({ reservationId: 'usage-1', deduplicated: false })),
     commit: vi.fn(async () => ({ id: 'usage-1', status: 'Succeeded' })),
     release: vi.fn(async () => ({ id: 'usage-1', status: 'Failed' })),
@@ -77,6 +78,17 @@ describe('AI sourcing suggestion tool', () => {
     await expect(tool.execute({ sourcingItemId: 'item-1' }, { signal: new AbortController().signal }))
       .rejects.toThrow('active human decision already exists')
     expect(authority.reserve).not.toHaveBeenCalled()
+  })
+
+  it('blocks model calls when ai.generation is not entitled', async () => {
+    const { tool, authority, llm } = makeHarness()
+    authority.validateFeature.mockResolvedValueOnce({
+      featureKey: 'ai.generation', allowed: false,
+    })
+    await expect(tool.execute({ sourcingItemId: 'item-1' }, { signal: new AbortController().signal }))
+      .rejects.toThrow('subscription feature blocked: ai.generation')
+    expect(authority.reserve).not.toHaveBeenCalled()
+    expect(llm.stream).not.toHaveBeenCalled()
   })
 
   it('reserves quota, commits actual usage, and persists an observe-only decision', async () => {

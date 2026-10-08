@@ -31,7 +31,7 @@ export const DEFAULT_PLAN: PlanDefinition = {
   softThresholdPct: 80,
   overagePolicy: 'block_ai_generation',
   allowedScenes: ['sourcing_analysis', 'image_generation', 'listing_generation', 'report'],
-  features: ['ai.generation', 'export.data', 'store.temu'],
+  features: ['ai.generation', 'listing.generation', 'export.data', 'store.temu'],
 }
 
 export interface AuthorityOptions {

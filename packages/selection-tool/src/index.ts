@@ -43,6 +43,13 @@ interface ProductApi {
 }
 
 interface BillingAuthority {
+  validateFeature(workspaceId: string, featureKey: string): {
+    featureKey: string
+    allowed: boolean
+  } | Promise<{
+    featureKey: string
+    allowed: boolean
+  }>
   reserve(input: {
     workspaceId: string
     scene: 'sourcing_analysis'
@@ -165,6 +172,10 @@ async function generateSuggestion(
   if (existing !== null) return existing
   if (view.item.status !== 'candidate') {
     throw new Error(`AI suggestions require candidate status, got ${view.item.status}`)
+  }
+  const feature = await ctx.billingAuthority!.validateFeature(config.workspaceId, 'ai.generation')
+  if (!feature.allowed) {
+    throw new Error('subscription feature blocked: ai.generation')
   }
 
   const prompt = buildPrompt(view)

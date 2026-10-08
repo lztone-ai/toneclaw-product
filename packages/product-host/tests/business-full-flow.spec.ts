@@ -9,6 +9,9 @@ let root = ''
 let config: ProductHostConfig
 let host: ProductImportHost | null = null
 let snapshot: any = null
+const allowAllBillingAuthority = {
+  validateFeature: () => ({ featureKey: 'test-allow', allowed: true }),
+}
 
 afterEach(() => {
   host?.close()
@@ -32,7 +35,7 @@ async function start(): Promise<void> {
     stabilityDelayMs: 0,
     pollIntervalMs: 100,
   }
-  host = new ProductImportHost({}, config)
+  host = new ProductImportHost({}, config, allowAllBillingAuthority)
   host.startCommandServer()
   const csv = readFileSync(join(__dirname, '../../sourcing-provider/fixtures/valid-minimal.csv'))
   writeFileSync(join(config.importDir, 'catalog.csv'), csv)
