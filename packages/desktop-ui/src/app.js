@@ -18,6 +18,8 @@
   const ordersNotice = document.getElementById("orders-notice");
   const fulfillmentsLive = document.getElementById("fulfillments-live");
   const fulfillmentsNotice = document.getElementById("fulfillments-notice");
+  const financeLive = document.getElementById("finance-live");
+  const financeNotice = document.getElementById("finance-notice");
   let currentSnapshot = null;
 
   const activate = (name, group) => {
@@ -520,6 +522,77 @@
     </section>`;
   };
 
+  const setFinanceNotice = (message, kind = "") => {
+    if (financeNotice === null) return;
+    financeNotice.textContent = message;
+    financeNotice.className = `notice${kind === "" ? "" : ` is-${kind}`}`;
+  };
+
+  const renderFinance = (snapshot) => {
+    if (financeLive === null) return;
+    const finance = snapshot.finance;
+    if (finance === undefined || finance === null) {
+      financeLive.innerHTML = '<section class="panel"><h2>利润摘要</h2><p class="empty-card">财务服务尚未生成经营估算。</p></section>';
+      return;
+    }
+
+    const { settings, summary, dailyReports, sourcePerformance } = finance;
+    const baseCurrencyInput = document.getElementById("finance-base-currency");
+    const platformFeeInput = document.getElementById("finance-platform-fee-bps");
+    const exchangeRatesInput = document.getElementById("finance-exchange-rates");
+    if (baseCurrencyInput instanceof HTMLInputElement && document.activeElement !== baseCurrencyInput) {
+      baseCurrencyInput.value = settings.baseCurrency;
+    }
+    if (platformFeeInput instanceof HTMLInputElement && document.activeElement !== platformFeeInput) {
+      platformFeeInput.value = String(settings.platformFeeBps);
+    }
+    if (exchangeRatesInput instanceof HTMLInputElement && document.activeElement !== exchangeRatesInput) {
+      exchangeRatesInput.value = JSON.stringify(settings.exchangeRates);
+    }
+
+    const itemTitles = new Map((snapshot.items ?? []).map((item) => [item.id, item.title]));
+    const dailyRows = (dailyReports ?? []).slice().reverse().map((report) => `
+      <tr>
+        <td><strong>${escapeHtml(report.reportDate)}</strong><small>${report.orderCount} 单</small></td>
+        <td>${formatMoney(report.revenueMinor, report.currency)}</td>
+        <td>${formatMoney(report.costMinor, report.currency)}</td>
+        <td>${formatMoney(report.netProfitMinor, report.currency)}</td>
+        <td>${report.blockers.length === 0 ? "—" : escapeHtml(report.blockers.join("；"))}</td>
+      </tr>`).join("");
+    const sourceRows = (sourcePerformance ?? []).map((source) => `
+      <tr>
+        <td><strong>${escapeHtml(itemTitles.get(source.sourcingItemId) ?? source.sourcingItemId)}</strong><small>${escapeHtml(source.sourcingItemId)}</small></td>
+        <td>${source.orderCount}</td>
+        <td>${formatMoney(source.revenueMinor, source.currency)}</td>
+        <td>${formatMoney(source.costMinor, source.currency)}</td>
+        <td>${formatMoney(source.netProfitMinor, source.currency)}</td>
+      </tr>`).join("");
+
+    financeLive.innerHTML = `
+      <div class="overview-strip">
+        <article class="status-card"><h2>收入</h2><strong>${formatMoney(summary.revenueMinor, summary.currency)}</strong><span>估算口径</span></article>
+        <article class="status-card"><h2>成本</h2><strong>${formatMoney(summary.costMinor, summary.currency)}</strong><span>采购 / 物流 / 平台费</span></article>
+        <article class="status-card"><h2>毛利</h2><strong>${formatMoney(summary.grossProfitMinor, summary.currency)}</strong><span>收入减估算成本</span></article>
+        <article class="status-card ${summary.netProfitMinor < 0 ? "is-warning" : ""}"><h2>净利</h2><strong>${formatMoney(summary.netProfitMinor, summary.currency)}</strong><span>含退款调整</span></article>
+      </div>
+      <section class="panel">
+        <h2>经营日报</h2>
+        ${dailyRows === "" ? '<p class="empty-card">还没有订单日报。导入订单并完成履约后会生成。</p>' : `
+          <div class="table-wrap"><table>
+            <thead><tr><th>日期</th><th>收入</th><th>成本</th><th>净利</th><th>阻塞</th></tr></thead>
+            <tbody>${dailyRows}</tbody>
+          </table></div>`}
+      </section>
+      <section class="panel">
+        <h2>选品来源复盘</h2>
+        ${sourceRows === "" ? '<p class="empty-card">还没有采购来源出单。</p>' : `
+          <div class="table-wrap"><table>
+            <thead><tr><th>货盘来源</th><th>采购单</th><th>收入</th><th>成本</th><th>净利</th></tr></thead>
+            <tbody>${sourceRows}</tbody>
+          </table></div>`}
+      </section>`;
+  };
+
   const renderFulfillments = (snapshot) => {
     if (fulfillmentsLive === null) return;
     const commerce = snapshot.commerce ?? {};
@@ -608,6 +681,30 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error ?? `命令失败（${response.status}）`);
     return payload;
+  };
+
+  const runFinanceSettingsSave = async () => {
+    const baseCurrency = document.getElementById("finance-base-currency")?.value.trim() ?? "";
+    const platformFeeBps = Number(document.getElementById("finance-platform-fee-bps")?.value ?? "0");
+    const exchangeRatesText = document.getElementById("finance-exchange-rates")?.value ?? "";
+    setFinanceNotice("正在保存经营估算口径…");
+    try {
+      const exchangeRates = JSON.parse(exchangeRatesText);
+      if (typeof exchangeRates !== "object" || exchangeRates === null || Array.isArray(exchangeRates)) {
+        throw new Error("汇率必须是对象");
+      }
+      if (!Number.isInteger(platformFeeBps) || platformFeeBps < 0 || platformFeeBps > 10000) {
+        throw new Error("平台费率必须是 0 到 10000 的整数");
+      }
+      const result = await postProductCommand("/finance/settings", {
+        baseCurrency, platformFeeBps, exchangeRates,
+      });
+      setFinanceNotice("经营估算口径已保存。", "success");
+      await refreshSourcing();
+      return result;
+    } catch (error) {
+      setFinanceNotice(error instanceof Error ? error.message : "经营估算口径保存失败。", "error");
+    }
   };
 
   const runOrderImport = async () => {
@@ -778,6 +875,8 @@
   }
   const orderImportButton = document.getElementById("order-import");
   if (orderImportButton !== null) orderImportButton.addEventListener("click", () => { void runOrderImport(); });
+  const financeSettingsButton = document.getElementById("finance-settings-save");
+  if (financeSettingsButton !== null) financeSettingsButton.addEventListener("click", () => { void runFinanceSettingsSave(); });
   const procurementCreateButton = document.getElementById("procurement-create");
   if (procurementCreateButton !== null) procurementCreateButton.addEventListener("click", () => { void runProcurementCreate(); });
   if (fulfillmentsLive !== null) {
@@ -841,6 +940,7 @@
     renderStores(snapshot.platform);
     renderOrders(snapshot);
     renderFulfillments(snapshot);
+    renderFinance(snapshot);
   };
 
   const storeConnection = document.getElementById("store-connection");

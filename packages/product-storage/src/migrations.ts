@@ -636,6 +636,66 @@ const COMMERCE_OPERATIONS = `
         ON payment_sessions(business_account_id, status);
 `
 
+const FINANCE_ESTIMATES_S5 = `
+      CREATE TABLE IF NOT EXISTS finance_settings (
+        workspace_id TEXT PRIMARY KEY,
+        base_currency TEXT NOT NULL,
+        platform_fee_bps INTEGER NOT NULL,
+        exchange_rates_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS cost_ledger_entries (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        related_type TEXT NOT NULL,
+        related_id TEXT NOT NULL,
+        cost_type TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        base_amount_minor INTEGER NOT NULL,
+        base_currency TEXT NOT NULL,
+        exchange_rate_snapshot REAL NOT NULL,
+        occurred_at TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        source_key TEXT NOT NULL,
+        notes TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_entries_source_key
+        ON cost_ledger_entries(workspace_id, source_key);
+      CREATE INDEX IF NOT EXISTS idx_cost_entries_workspace
+        ON cost_ledger_entries(workspace_id, occurred_at, source_type);
+      CREATE TABLE IF NOT EXISTS profit_summaries (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        scope_type TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        revenue_minor INTEGER NOT NULL,
+        cost_minor INTEGER NOT NULL,
+        gross_profit_minor INTEGER NOT NULL,
+        net_profit_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_profit_summaries_scope
+        ON profit_summaries(workspace_id, scope_type, scope_id);
+      CREATE TABLE IF NOT EXISTS daily_reports (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        report_date TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        order_count INTEGER NOT NULL,
+        revenue_minor INTEGER NOT NULL,
+        cost_minor INTEGER NOT NULL,
+        net_profit_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        blockers_json TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_reports_date
+        ON daily_reports(workspace_id, report_date);
+`
+
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -688,6 +748,13 @@ export const MIGRATIONS: Migration[] = [
     name: 'commerce_operations_s4',
     apply: db => {
       db.exec(COMMERCE_OPERATIONS)
+    },
+  },
+  {
+    version: 7,
+    name: 'finance_estimates_s5',
+    apply: db => {
+      db.exec(FINANCE_ESTIMATES_S5)
     },
   },
 ]

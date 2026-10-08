@@ -293,6 +293,23 @@
               <h2>配额服务</h2>
               <p>正在读取本地配额权威…</p>
             </article>
+            <article class="panel">
+              <h2>经营估算口径</h2>
+              <div class="filter-grid">
+                <label>记账币种<input id="finance-base-currency" value="USD"></label>
+                <label>平台费率（bps）<input id="finance-platform-fee-bps" type="number" min="0" max="10000" value="500"></label>
+                <label>汇率 JSON<input id="finance-exchange-rates" value='{"USD":1}'></label>
+              </div>
+              <div class="actions"><button type="button" id="finance-settings-save">保存估算口径</button></div>
+              <p id="finance-notice" class="notice" aria-live="polite"></p>
+              <p class="context-note">利润摘要与日报为估算口径；平台费率和汇率由运营 / 卖家维护，不等于平台真实结算对账。</p>
+            </article>
+            <div id="finance-live" aria-live="polite">
+              <section class="panel">
+                <h2>利润摘要</h2>
+                <p class="empty-card">还没有经营数据。</p>
+              </section>
+            </div>
             <div class="empty-panel">
               <h2>还没有用量记录</h2>
               <p>每次 AI 建议都会生成用量记录并关联业务对象。</p>

@@ -25,6 +25,10 @@ import {
   type CommerceDeps,
   type SelectionDeps,
   type ListingDeps,
+  ensureFinanceSettings,
+  rebuildFinance,
+  updateFinanceSettings,
+  type FinanceDeps,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
 import { MockTemuAdapter } from '@toneclaw/marketplace-adapter-mock'
@@ -246,12 +250,16 @@ export class ProductImportHost {
   }
 
   private writeSnapshot(): Promise<string> {
-    return writeSourcingSnapshot(
+    return rebuildFinance(this.financeDeps(), {
+      workspaceId: this.config.workspaceId,
+      actorId: 'finance-domain',
+    }).then(finance => writeSourcingSnapshot(
       this.config.dataDir,
       this.storage,
       this.config.workspaceId,
       this.commandBaseUrl === null ? undefined : { baseUrl: this.commandBaseUrl, token: this.commandToken },
-    )
+      finance.sourcePerformance,
+    ))
   }
 
   private selectionDeps(): SelectionDeps {
@@ -290,6 +298,19 @@ export class ProductImportHost {
       audit: this.storage.audit,
       stores: this.storage.stores,
       ...this.storage.commerce,
+    }
+  }
+
+  private financeDeps(): FinanceDeps {
+    return {
+      ids: new UuidGenerator(),
+      clock: { now: () => new Date() },
+      audit: this.storage.audit,
+      ...this.storage.finance,
+      orders: this.storage.commerce.orders,
+      orderItems: this.storage.commerce.orderItems,
+      procurements: this.storage.commerce.procurementOrders,
+      payments: this.storage.commerce.paymentSessions,
     }
   }
 
@@ -617,6 +638,30 @@ export class ProductImportHost {
         })
         return
       }
+      if (url.pathname === '/api/v1/finance/settings') {
+        const deps = this.financeDeps()
+        const current = await ensureFinanceSettings(deps, this.config.workspaceId)
+        const settings = await updateFinanceSettings(deps, {
+          workspaceId: this.config.workspaceId,
+          actorId: this.config.createdBy,
+          baseCurrency: input['baseCurrency'] === undefined
+            ? current.baseCurrency
+            : requireString(input['baseCurrency'], 'baseCurrency'),
+          platformFeeBps: input['platformFeeBps'] === undefined
+            ? current.platformFeeBps
+            : requireInteger(input['platformFeeBps'], 'platformFeeBps'),
+          exchangeRates: input['exchangeRates'] === undefined
+            ? current.exchangeRates
+            : requireExchangeRates(input['exchangeRates']),
+        })
+        await this.writeSnapshot()
+        sendCommandJson(response, 200, {
+          baseCurrency: settings.baseCurrency,
+          platformFeeBps: settings.platformFeeBps,
+          exchangeRates: settings.exchangeRates,
+        })
+        return
+      }
       const platformHandled = await handlePlatformCommand(url.pathname, input, this.platform, (status, payload) => {
         sendCommandJson(response, status, payload)
       }, async () => { await this.writeSnapshot() })
@@ -862,6 +907,20 @@ function requireAttributes(value: unknown): { key: string; value: string; valueT
     }
     return { key, value: attributeValue, valueType }
   })
+}
+
+function requireExchangeRates(value: unknown): Record<string, number> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('exchangeRates must be an object')
+  }
+  const entries = Object.entries(value as Record<string, unknown>).map(([currency, rate]) => {
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error(`exchange rate for ${currency} must be a positive number`)
+    }
+    return [currency, rate] as const
+  })
+  if (entries.length === 0) throw new Error('exchangeRates must contain at least one rate')
+  return Object.fromEntries(entries)
 }
 
 function requireEnum<T extends string>(value: unknown, name: string, values: readonly T[]): T {

@@ -143,6 +143,28 @@ it('runs order, procurement, payment, shipment, delivery, and refund commands', 
   expect(snapshot.commerce.payments[0].status).toBe('refunded')
   expect(snapshot.commerce.fulfillments[0].status).toBe('delivered')
   expect(snapshot.commerce.orderItems).toHaveLength(1)
+  expect(snapshot.finance.summary).toMatchObject({
+    revenueMinor: 10_500,
+    costMinor: 7_700,
+    grossProfitMinor: 2_800,
+    netProfitMinor: 10_000,
+  })
+  expect(snapshot.finance.sourcePerformance).toMatchObject([{
+    sourcingItemId: itemId,
+    orderCount: 1,
+    revenueMinor: 10_500,
+    costMinor: 0,
+  }])
+  expect(snapshot.finance.dailyReports.some((report: { revenueMinor: number }) => report.revenueMinor === 10_500)).toBe(true)
+  const configured = await post('/finance/settings', {
+    baseCurrency: 'USD', platformFeeBps: 800, exchangeRates: { USD: 1 },
+  })
+  expect(configured.status).toBe(200)
+  snapshot = JSON.parse(await readSnapshot())
+  expect(snapshot.finance.settings.platformFeeBps).toBe(800)
+  expect(snapshot.finance.summary).toMatchObject({
+    revenueMinor: 10_500, costMinor: 8_000, netProfitMinor: 9_700,
+  })
   const audit = await host!.productApi().auditEvents(config.workspaceId)
   expect(audit.map((event: { action: string }) => event.action)).toEqual(expect.arrayContaining([
     'order.imported',

@@ -18,6 +18,10 @@ import type {
   ListingRevision,
   PublishJob,
   ManualListingPackage,
+  DailyReport,
+  FinanceSettings,
+  ProfitSummary,
+  SourcePerformance,
 } from '@toneclaw/core-domain'
 import type { ProductStorage } from '@toneclaw/product-storage'
 
@@ -95,6 +99,12 @@ export interface SourcingSnapshot {
     procurementOrders: ProcurementOrder[]
     payments: PaymentSession[]
   }
+  finance: {
+    settings: FinanceSettings
+    summary: ProfitSummary
+    dailyReports: DailyReport[]
+    sourcePerformance: SourcePerformance[]
+  }
   platform: {
     connections: {
       id: string
@@ -124,6 +134,7 @@ export function writeSourcingSnapshot(
   storage: ProductStorage,
   workspaceId: string,
   commandEndpoint?: SourcingCommandEndpoint,
+  financeSourcePerformance: SourcePerformance[] = [],
 ): Promise<string> {
   const views = storage.listSourcingItemViews(workspaceId)
   const allItems = views.map(view => view.item)
@@ -153,6 +164,12 @@ export function writeSourcingSnapshot(
     const payments = (await Promise.all(
       procurementOrders.map(order => storage.commerce.paymentSessions.listByProcurementOrder(workspaceId, order.id)),
     )).flat()
+    const financeSettings = await storage.finance.settings.find(workspaceId)
+    const financeSummary = await storage.finance.profitSummaries.findCurrent(workspaceId)
+    const financeDailyReports = await storage.finance.dailyReports.list(workspaceId, 30)
+    if (financeSettings === undefined || financeSummary === undefined) {
+      throw new Error('finance snapshot is not initialized')
+    }
     const snapshot: SourcingSnapshot = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -224,6 +241,12 @@ export function writeSourcingSnapshot(
         fulfillments,
         procurementOrders,
         payments,
+      },
+      finance: {
+        settings: financeSettings,
+        summary: financeSummary,
+        dailyReports: financeDailyReports,
+        sourcePerformance: financeSourcePerformance,
       },
       platform: (() => {
         const connections = storage.listPlatformConnections(workspaceId)

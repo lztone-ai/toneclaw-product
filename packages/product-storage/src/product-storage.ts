@@ -38,11 +38,13 @@ import type {
   Supplier,
   SupplierRepository,
   CommerceRepositories,
+  FinanceRepositories,
 } from '@toneclaw/core-domain'
 import { runMigrations } from './migrations.ts'
 import { createPlatformRepositories, listPlatformConnections, listPlatformStoreViews } from './repositories/platform.ts'
 import { createListingRepositories } from './repositories/listing.ts'
 import { createCommerceRepositories } from './repositories/commerce.ts'
+import { createFinanceRepositories } from './repositories/finance.ts'
 
 interface SourcingItemRow {
   id: string
@@ -328,6 +330,7 @@ export class ProductStorage {
   private readonly platform: PlatformRepositories
   private readonly listingRepositories: ListingRepositories
   private readonly commerceRepositories: CommerceRepositories
+  private readonly financeRepositories: FinanceRepositories
 
   constructor(readonly path: string) {
     this.db = new DatabaseSync(path)
@@ -335,6 +338,7 @@ export class ProductStorage {
     this.platform = createPlatformRepositories(this.db)
     this.listingRepositories = createListingRepositories(this.db)
     this.commerceRepositories = createCommerceRepositories(this.db)
+    this.financeRepositories = createFinanceRepositories(this.db)
   }
 
   /** Raw prepared-statement access for tooling and test seeding. */
@@ -376,6 +380,10 @@ export class ProductStorage {
 
   get commerce(): CommerceRepositories {
     return this.commerceRepositories
+  }
+
+  get finance(): FinanceRepositories {
+    return this.financeRepositories
   }
 
   get sourcingItems(): SourcingItemRepository {
