@@ -12,6 +12,8 @@ interface SettingsRow {
   workspace_id: string
   base_currency: string
   platform_fee_bps: number
+  ai_input_cost_minor_per_million_tokens: number
+  ai_output_cost_minor_per_million_tokens: number
   exchange_rates_json: string
   updated_at: string
 }
@@ -41,6 +43,7 @@ interface ProfitSummaryRow {
   scope_id: string
   revenue_minor: number
   cost_minor: number
+  ai_cost_minor: number
   gross_profit_minor: number
   net_profit_minor: number
   currency: string
@@ -66,6 +69,8 @@ function mapSettings(row: SettingsRow): FinanceSettings {
     workspaceId: row.workspace_id,
     baseCurrency: row.base_currency,
     platformFeeBps: row.platform_fee_bps,
+    aiInputCostMinorPerMillionTokens: row.ai_input_cost_minor_per_million_tokens,
+    aiOutputCostMinorPerMillionTokens: row.ai_output_cost_minor_per_million_tokens,
     exchangeRates: JSON.parse(row.exchange_rates_json) as Record<string, number>,
     updatedAt: row.updated_at,
   }
@@ -99,6 +104,7 @@ function mapProfitSummary(row: ProfitSummaryRow): ProfitSummary {
     scopeId: row.scope_id,
     revenueMinor: row.revenue_minor,
     costMinor: row.cost_minor,
+    aiCostMinor: row.ai_cost_minor,
     grossProfitMinor: row.gross_profit_minor,
     netProfitMinor: row.net_profit_minor,
     currency: row.currency,
@@ -133,15 +139,22 @@ export function createFinanceRepositories(db: DatabaseSync): FinanceRepositories
       upsert: async settings => {
         db.prepare(`
           INSERT INTO finance_settings (
-            workspace_id, base_currency, platform_fee_bps, exchange_rates_json, updated_at
-          ) VALUES (?, ?, ?, ?, ?)
+            workspace_id, base_currency, platform_fee_bps,
+            ai_input_cost_minor_per_million_tokens,
+            ai_output_cost_minor_per_million_tokens,
+            exchange_rates_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(workspace_id) DO UPDATE SET
             base_currency = excluded.base_currency,
             platform_fee_bps = excluded.platform_fee_bps,
+            ai_input_cost_minor_per_million_tokens = excluded.ai_input_cost_minor_per_million_tokens,
+            ai_output_cost_minor_per_million_tokens = excluded.ai_output_cost_minor_per_million_tokens,
             exchange_rates_json = excluded.exchange_rates_json,
             updated_at = excluded.updated_at
         `).run(
           settings.workspaceId, settings.baseCurrency, settings.platformFeeBps,
+          settings.aiInputCostMinorPerMillionTokens,
+          settings.aiOutputCostMinorPerMillionTokens,
           JSON.stringify(settings.exchangeRates), settings.updatedAt,
         )
       },
@@ -191,11 +204,13 @@ export function createFinanceRepositories(db: DatabaseSync): FinanceRepositories
         db.prepare(`
           INSERT INTO profit_summaries (
             id, workspace_id, scope_type, scope_id, revenue_minor, cost_minor,
-            gross_profit_minor, net_profit_minor, currency, period_start, period_end
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ai_cost_minor, gross_profit_minor, net_profit_minor, currency,
+            period_start, period_end
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(workspace_id, scope_type, scope_id) DO UPDATE SET
             revenue_minor = excluded.revenue_minor,
             cost_minor = excluded.cost_minor,
+            ai_cost_minor = excluded.ai_cost_minor,
             gross_profit_minor = excluded.gross_profit_minor,
             net_profit_minor = excluded.net_profit_minor,
             currency = excluded.currency,
@@ -203,7 +218,8 @@ export function createFinanceRepositories(db: DatabaseSync): FinanceRepositories
             period_end = excluded.period_end
         `).run(
           summary.id, summary.workspaceId, summary.scopeType, summary.scopeId,
-          summary.revenueMinor, summary.costMinor, summary.grossProfitMinor,
+          summary.revenueMinor, summary.costMinor, summary.aiCostMinor,
+          summary.grossProfitMinor,
           summary.netProfitMinor, summary.currency, summary.periodStart, summary.periodEnd,
         )
       },

@@ -251,7 +251,7 @@ export class LocalBillingAuthority {
     if (record.status === 'Succeeded') return record
     if (record.status !== 'Reserved') throw new Error(`cannot commit usage record in status ${record.status}`)
     const settled = this.now().toISOString()
-    const cost = usage.costEstimateMinor ?? 0
+    const cost = usage.costEstimateMinor ?? null
     this.store.transaction(() => {
       this.store.prepare(`
         UPDATE usage_records

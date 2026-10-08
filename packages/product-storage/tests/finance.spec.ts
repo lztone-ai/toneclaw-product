@@ -27,6 +27,8 @@ it('persists S5 settings, calculated costs, summaries, and daily reports', async
   const first = storages[0]!
   await first.finance.settings.upsert({
     workspaceId: 'ws', baseCurrency: 'CNY', platformFeeBps: 800,
+    aiInputCostMinorPerMillionTokens: 1_000,
+    aiOutputCostMinorPerMillionTokens: 2_000,
     exchangeRates: { CNY: 1, USD: 7.2 }, updatedAt: '2026-10-08T00:00:00Z',
   })
   const entry: CostLedgerEntry = {
@@ -39,7 +41,8 @@ it('persists S5 settings, calculated costs, summaries, and daily reports', async
   await first.finance.costEntries.upsert(entry)
   await first.finance.profitSummaries.upsert({
     id: 'summary-1', workspaceId: 'ws', scopeType: 'period', scopeId: 'all',
-    revenueMinor: 75_600, costMinor: 55_500, grossProfitMinor: 20_100,
+    revenueMinor: 75_600, costMinor: 55_500, aiCostMinor: 1_200,
+    grossProfitMinor: 20_100,
     netProfitMinor: 77_340, currency: 'CNY',
     periodStart: '2026-10-08T09:00:00Z', periodEnd: '2026-10-08T09:00:00Z',
   })
@@ -50,13 +53,16 @@ it('persists S5 settings, calculated costs, summaries, and daily reports', async
   })
   const second = new ProductStorage(path)
   storages.push(second)
-  expect(second.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 7 })
+  expect(second.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 8 })
   await expect(second.finance.settings.find('ws')).resolves.toMatchObject({
-    baseCurrency: 'CNY', platformFeeBps: 800, exchangeRates: { CNY: 1, USD: 7.2 },
+    baseCurrency: 'CNY', platformFeeBps: 800,
+    aiInputCostMinorPerMillionTokens: 1_000,
+    aiOutputCostMinorPerMillionTokens: 2_000,
+    exchangeRates: { CNY: 1, USD: 7.2 },
   })
   expect(await second.finance.costEntries.list('ws')).toMatchObject([entry])
   await expect(second.finance.profitSummaries.findCurrent('ws')).resolves.toMatchObject({
-    revenueMinor: 75_600, netProfitMinor: 77_340,
+    revenueMinor: 75_600, aiCostMinor: 1_200, netProfitMinor: 77_340,
   })
   expect(await second.finance.dailyReports.list('ws')).toMatchObject([{
     reportDate: '2026-10-08', revenueMinor: 75_600,

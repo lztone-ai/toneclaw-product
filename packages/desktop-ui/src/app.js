@@ -5,6 +5,7 @@
   const subNavs = [...document.querySelectorAll(".sub-nav")];
   const views = [...document.querySelectorAll(".view")];
   const usageLive = document.getElementById("usage-live");
+  const usageRecordsLive = document.getElementById("usage-records-live");
   const sourcingLive = document.getElementById("sourcing-live");
   const selectionLive = document.getElementById("selection-live");
   const selectionNotice = document.getElementById("selection-notice");
@@ -64,6 +65,34 @@
       "</dl>" +
       `<progress class="usage-bar" max="${quota.tokenLimit}" value="${used}"></progress>` +
       `<p>${used} / ${quota.tokenLimit} Tokens · ${quota.usedRequests} 次请求 · 生成于 ${snapshot.generatedAt.slice(0, 19).replace("T", " ")}</p>`;
+    if (usageRecordsLive !== null) {
+      const records = snapshot.usageRecords ?? [];
+      const usageStatusLabel = {
+        Reserved: "已预留", Succeeded: "成功", Failed: "失败", Expired: "已过期",
+      };
+      const usageSceneLabel = {
+        sourcing_analysis: "选品建议",
+        image_generation: "图片生成",
+        listing_generation: "Listing 生成",
+        report: "经营报告",
+      };
+      const rows = records.map((record) => `
+        <tr>
+          <td><strong>${escapeHtml(usageSceneLabel[record.scene] ?? record.scene)}</strong><small>${escapeHtml(record.model)}</small></td>
+          <td><span class="status-pill">${escapeHtml(usageStatusLabel[record.status] ?? record.status)}</span></td>
+          <td>${record.inputTokens ?? 0} / ${record.outputTokens ?? 0}</td>
+          <td>${record.costEstimateMinor === null ? "—" : `${record.costEstimateMinor} 分`}</td>
+          <td>${escapeHtml(record.relatedObjectType ?? "—")}</td>
+          <td>${formatTime(record.completedAt ?? record.createdAt)}</td>
+        </tr>`).join("");
+      usageRecordsLive.innerHTML = `<section class="panel"><h2>用量记录</h2>
+        ${rows === "" ? '<p class="empty-card">还没有用量记录。每次 AI 建议都会生成用量记录并关联业务对象。</p>' : `
+          <div class="table-wrap"><table>
+            <thead><tr><th>场景 / 模型</th><th>状态</th><th>输入 / 输出</th><th>成本估算（分）</th><th>关联对象</th><th>时间</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>`}
+      </section>`;
+    }
   };
 
   const refreshUsage = () => {
@@ -539,12 +568,20 @@
     const { settings, summary, dailyReports, sourcePerformance } = finance;
     const baseCurrencyInput = document.getElementById("finance-base-currency");
     const platformFeeInput = document.getElementById("finance-platform-fee-bps");
+    const aiInputCostInput = document.getElementById("finance-ai-input-cost");
+    const aiOutputCostInput = document.getElementById("finance-ai-output-cost");
     const exchangeRatesInput = document.getElementById("finance-exchange-rates");
     if (baseCurrencyInput instanceof HTMLInputElement && document.activeElement !== baseCurrencyInput) {
       baseCurrencyInput.value = settings.baseCurrency;
     }
     if (platformFeeInput instanceof HTMLInputElement && document.activeElement !== platformFeeInput) {
       platformFeeInput.value = String(settings.platformFeeBps);
+    }
+    if (aiInputCostInput instanceof HTMLInputElement && document.activeElement !== aiInputCostInput) {
+      aiInputCostInput.value = String(settings.aiInputCostMinorPerMillionTokens);
+    }
+    if (aiOutputCostInput instanceof HTMLInputElement && document.activeElement !== aiOutputCostInput) {
+      aiOutputCostInput.value = String(settings.aiOutputCostMinorPerMillionTokens);
     }
     if (exchangeRatesInput instanceof HTMLInputElement && document.activeElement !== exchangeRatesInput) {
       exchangeRatesInput.value = JSON.stringify(settings.exchangeRates);
@@ -572,6 +609,7 @@
       <div class="overview-strip">
         <article class="status-card"><h2>收入</h2><strong>${formatMoney(summary.revenueMinor, summary.currency)}</strong><span>估算口径</span></article>
         <article class="status-card"><h2>成本</h2><strong>${formatMoney(summary.costMinor, summary.currency)}</strong><span>采购 / 物流 / 平台费</span></article>
+        <article class="status-card"><h2>AI 成本</h2><strong>${formatMoney(summary.aiCostMinor, summary.currency)}</strong><span>UsageRecord 估算</span></article>
         <article class="status-card"><h2>毛利</h2><strong>${formatMoney(summary.grossProfitMinor, summary.currency)}</strong><span>收入减估算成本</span></article>
         <article class="status-card ${summary.netProfitMinor < 0 ? "is-warning" : ""}"><h2>净利</h2><strong>${formatMoney(summary.netProfitMinor, summary.currency)}</strong><span>含退款调整</span></article>
       </div>
@@ -686,6 +724,8 @@
   const runFinanceSettingsSave = async () => {
     const baseCurrency = document.getElementById("finance-base-currency")?.value.trim() ?? "";
     const platformFeeBps = Number(document.getElementById("finance-platform-fee-bps")?.value ?? "0");
+    const aiInputCostMinorPerMillionTokens = Number(document.getElementById("finance-ai-input-cost")?.value ?? "0");
+    const aiOutputCostMinorPerMillionTokens = Number(document.getElementById("finance-ai-output-cost")?.value ?? "0");
     const exchangeRatesText = document.getElementById("finance-exchange-rates")?.value ?? "";
     setFinanceNotice("正在保存经营估算口径…");
     try {
@@ -696,8 +736,14 @@
       if (!Number.isInteger(platformFeeBps) || platformFeeBps < 0 || platformFeeBps > 10000) {
         throw new Error("平台费率必须是 0 到 10000 的整数");
       }
+      if (!Number.isInteger(aiInputCostMinorPerMillionTokens) || aiInputCostMinorPerMillionTokens < 0
+        || !Number.isInteger(aiOutputCostMinorPerMillionTokens) || aiOutputCostMinorPerMillionTokens < 0) {
+        throw new Error("AI Token 单价必须是不小于 0 的整数");
+      }
       const result = await postProductCommand("/finance/settings", {
-        baseCurrency, platformFeeBps, exchangeRates,
+        baseCurrency, platformFeeBps,
+        aiInputCostMinorPerMillionTokens, aiOutputCostMinorPerMillionTokens,
+        exchangeRates,
       });
       setFinanceNotice("经营估算口径已保存。", "success");
       await refreshSourcing();

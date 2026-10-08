@@ -160,7 +160,9 @@ it('runs order, procurement, payment, shipment, delivery, and refund commands', 
   }])
   expect(snapshot.finance.dailyReports.some((report: { revenueMinor: number }) => report.revenueMinor === 10_500)).toBe(true)
   const configured = await post('/finance/settings', {
-    baseCurrency: 'USD', platformFeeBps: 800, exchangeRates: { USD: 1 },
+    baseCurrency: 'USD', platformFeeBps: 800,
+    aiInputCostMinorPerMillionTokens: 0, aiOutputCostMinorPerMillionTokens: 0,
+    exchangeRates: { USD: 1 },
   })
   expect(configured.status).toBe(200)
   snapshot = JSON.parse(await readSnapshot())

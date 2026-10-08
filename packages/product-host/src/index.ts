@@ -29,6 +29,7 @@ import {
   rebuildFinance,
   updateFinanceSettings,
   type FinanceDeps,
+  type FinanceAiUsage,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
 import { MockTemuAdapter } from '@toneclaw/marketplace-adapter-mock'
@@ -59,8 +60,21 @@ export interface BillingFeatureDecision {
   allowed: boolean
 }
 
+export interface ProductBillingUsageRecord {
+  id: string
+  status: string
+  inputTokens: number | null
+  outputTokens: number | null
+  costEstimateMinor: number | null
+  relatedObjectType: string | null
+  relatedObjectId: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
 export interface BillingFeatureAuthority {
   validateFeature(workspaceId: string, featureKey: string): BillingFeatureDecision | Promise<BillingFeatureDecision>
+  usageRecords?(workspaceId: string): ProductBillingUsageRecord[] | Promise<ProductBillingUsageRecord[]>
 }
 
 export interface ProductHostContext {
@@ -263,17 +277,35 @@ export class ProductImportHost {
     await writeFile(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
   }
 
-  private writeSnapshot(): Promise<string> {
-    return rebuildFinance(this.financeDeps(), {
+  private async aiUsageFromBilling(): Promise<FinanceAiUsage[]> {
+    const records = await this.billingAuthority?.usageRecords?.(this.config.workspaceId) ?? []
+    return records
+      .filter(record => record.status === 'Succeeded')
+      .map(record => ({
+        id: record.id,
+        inputTokens: record.inputTokens ?? 0,
+        outputTokens: record.outputTokens ?? 0,
+        costEstimateMinor: record.costEstimateMinor,
+        occurredAt: record.completedAt ?? record.createdAt,
+        relatedType: record.relatedObjectType === 'ListingDraft' ? 'listing_draft' as const : 'sourcing_item' as const,
+        relatedId: record.relatedObjectId ?? record.id,
+      }))
+  }
+
+  private async writeSnapshot(): Promise<string> {
+    const aiUsage = await this.aiUsageFromBilling()
+    const finance = await rebuildFinance(this.financeDeps(), {
       workspaceId: this.config.workspaceId,
       actorId: 'finance-domain',
-    }).then(finance => writeSourcingSnapshot(
+      aiUsage,
+    })
+    return writeSourcingSnapshot(
       this.config.dataDir,
       this.storage,
       this.config.workspaceId,
       this.commandBaseUrl === null ? undefined : { baseUrl: this.commandBaseUrl, token: this.commandToken },
       finance.sourcePerformance,
-    ))
+    )
   }
 
   private selectionDeps(): SelectionDeps {
@@ -673,6 +705,12 @@ export class ProductImportHost {
           platformFeeBps: input['platformFeeBps'] === undefined
             ? current.platformFeeBps
             : requireInteger(input['platformFeeBps'], 'platformFeeBps'),
+          aiInputCostMinorPerMillionTokens: input['aiInputCostMinorPerMillionTokens'] === undefined
+            ? current.aiInputCostMinorPerMillionTokens
+            : requireInteger(input['aiInputCostMinorPerMillionTokens'], 'aiInputCostMinorPerMillionTokens'),
+          aiOutputCostMinorPerMillionTokens: input['aiOutputCostMinorPerMillionTokens'] === undefined
+            ? current.aiOutputCostMinorPerMillionTokens
+            : requireInteger(input['aiOutputCostMinorPerMillionTokens'], 'aiOutputCostMinorPerMillionTokens'),
           exchangeRates: input['exchangeRates'] === undefined
             ? current.exchangeRates
             : requireExchangeRates(input['exchangeRates']),
@@ -681,6 +719,8 @@ export class ProductImportHost {
         sendCommandJson(response, 200, {
           baseCurrency: settings.baseCurrency,
           platformFeeBps: settings.platformFeeBps,
+          aiInputCostMinorPerMillionTokens: settings.aiInputCostMinorPerMillionTokens,
+          aiOutputCostMinorPerMillionTokens: settings.aiOutputCostMinorPerMillionTokens,
           exchangeRates: settings.exchangeRates,
         })
         return

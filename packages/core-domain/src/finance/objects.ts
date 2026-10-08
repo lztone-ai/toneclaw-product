@@ -35,6 +35,9 @@ export interface FinanceSettings {
   baseCurrency: string
   /** Basis points charged by the marketplace; 500 = 5%. */
   platformFeeBps: number
+  /** Estimated model cost in minor units per one million tokens. Values stay configurable. */
+  aiInputCostMinorPerMillionTokens: number
+  aiOutputCostMinorPerMillionTokens: number
   /** Rates are normalized as `currency -> rate to baseCurrency`. */
   exchangeRates: Record<string, number>
   updatedAt: string
@@ -47,6 +50,7 @@ export interface ProfitSummary {
   scopeId: string
   revenueMinor: number
   costMinor: number
+  aiCostMinor: number
   grossProfitMinor: number
   netProfitMinor: number
   currency: string

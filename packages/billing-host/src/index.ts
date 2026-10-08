@@ -33,6 +33,14 @@ function startBillingHost(ctx: BillingHostContext, config: BillingHostConfig): (
   const snapshotPath = writeUsageSnapshot(config.dataDir, authority, config.workspaceId)
   // Rolling local backup: the export bundle is the no-cloud-backup fallback (S1 导出兜底).
   const backupPath = writeExportBundle(authority, config.workspaceId, join(config.dataDir, 'export-latest.json'))
+  const snapshotTimer = setInterval(() => {
+    try {
+      writeUsageSnapshot(config.dataDir, authority, config.workspaceId)
+    } catch (error) {
+      ctx.logger?.error?.('[billing-host] usage snapshot refresh failed', error)
+    }
+  }, 5_000)
+  snapshotTimer.unref?.()
   ;(ctx as { billingAuthority?: unknown }).billingAuthority = authority
   ctx.logger?.info?.(`[billing-host] authority ready; snapshot ${snapshotPath}`)
   let closed = false
@@ -40,6 +48,7 @@ function startBillingHost(ctx: BillingHostContext, config: BillingHostConfig): (
   return () => {
     if (closed) return
     closed = true
+    clearInterval(snapshotTimer)
     try { store.close() } catch { /* already closed */ }
   }
 }

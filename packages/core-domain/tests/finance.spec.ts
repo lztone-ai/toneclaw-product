@@ -121,7 +121,10 @@ describe('S5 finance estimates', () => {
     })
     const settings = await updateFinanceSettings(context.deps, {
       workspaceId: 'ws', actorId: 'seller-1', baseCurrency: 'cny',
-      platformFeeBps: 800, exchangeRates: { cny: 1, usd: 7.2 },
+      platformFeeBps: 800,
+      aiInputCostMinorPerMillionTokens: 0,
+      aiOutputCostMinorPerMillionTokens: 0,
+      exchangeRates: { cny: 1, usd: 7.2 },
     })
     expect(settings).toMatchObject({ baseCurrency: 'CNY', platformFeeBps: 800 })
     const second = await rebuildFinance(context.deps, { workspaceId: 'ws', actorId: 'finance-domain' })
@@ -131,5 +134,26 @@ describe('S5 finance estimates', () => {
     })
     expect([...context.costs.keys()]).toContain('manual:adjustment')
     expect(context.costs.size).toBe(6)
+  })
+
+  it('calculates AI cost from UsageRecord and attributes it to the source', async () => {
+    const context = makeFinanceDeps()
+    const result = await rebuildFinance(context.deps, {
+      workspaceId: 'ws', actorId: 'finance-domain',
+      aiUsage: [{
+        id: 'usage-1', inputTokens: 123, outputTokens: 45,
+        costEstimateMinor: 213, occurredAt: '2026-10-08T09:00:00Z',
+        relatedType: 'sourcing_item', relatedId: 'source-1',
+      }],
+    })
+    expect(result.summary).toMatchObject({
+      aiCostMinor: 213, costMinor: 7_913, grossProfitMinor: 2_587,
+    })
+    expect(result.sourcePerformance).toMatchObject([{
+      sourcingItemId: 'source-1', costMinor: 213, netProfitMinor: 10_287,
+    }])
+    expect(context.costs.get('ai_usage:usage-1')).toMatchObject({
+      costType: 'ai_usage', amountMinor: 213, relatedType: 'sourcing_item',
+    })
   })
 })

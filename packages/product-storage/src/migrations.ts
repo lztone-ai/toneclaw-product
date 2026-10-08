@@ -672,6 +672,7 @@ const FINANCE_ESTIMATES_S5 = `
         scope_id TEXT NOT NULL,
         revenue_minor INTEGER NOT NULL,
         cost_minor INTEGER NOT NULL,
+        ai_cost_minor INTEGER NOT NULL DEFAULT 0,
         gross_profit_minor INTEGER NOT NULL,
         net_profit_minor INTEGER NOT NULL,
         currency TEXT NOT NULL,
@@ -755,6 +756,15 @@ export const MIGRATIONS: Migration[] = [
     name: 'finance_estimates_s5',
     apply: db => {
       db.exec(FINANCE_ESTIMATES_S5)
+    },
+  },
+  {
+    version: 8,
+    name: 'finance_ai_cost_s5',
+    apply: db => {
+      ensureColumn(db, 'finance_settings', 'ai_input_cost_minor_per_million_tokens', 'INTEGER NOT NULL DEFAULT 0')
+      ensureColumn(db, 'finance_settings', 'ai_output_cost_minor_per_million_tokens', 'INTEGER NOT NULL DEFAULT 0')
+      ensureColumn(db, 'profit_summaries', 'ai_cost_minor', 'INTEGER NOT NULL DEFAULT 0')
     },
   },
 ]

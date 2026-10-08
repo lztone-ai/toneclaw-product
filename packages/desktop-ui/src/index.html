@@ -298,6 +298,8 @@
               <div class="filter-grid">
                 <label>记账币种<input id="finance-base-currency" value="USD"></label>
                 <label>平台费率（bps）<input id="finance-platform-fee-bps" type="number" min="0" max="10000" value="500"></label>
+                <label>AI 输入单价（分/百万Tokens）<input id="finance-ai-input-cost" type="number" min="0" value="0"></label>
+                <label>AI 输出单价（分/百万Tokens）<input id="finance-ai-output-cost" type="number" min="0" value="0"></label>
                 <label>汇率 JSON<input id="finance-exchange-rates" value='{"USD":1}'></label>
               </div>
               <div class="actions"><button type="button" id="finance-settings-save">保存估算口径</button></div>
@@ -310,9 +312,11 @@
                 <p class="empty-card">还没有经营数据。</p>
               </section>
             </div>
-            <div class="empty-panel">
-              <h2>还没有用量记录</h2>
-              <p>每次 AI 建议都会生成用量记录并关联业务对象。</p>
+            <div id="usage-records-live" aria-live="polite">
+              <section class="panel">
+                <h2>用量记录</h2>
+                <p class="empty-card">还没有用量记录。</p>
+              </section>
             </div>
           </section>
 

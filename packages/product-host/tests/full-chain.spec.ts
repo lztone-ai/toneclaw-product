@@ -12,9 +12,6 @@ const roots: string[] = []
 const stores: BillingStore[] = []
 let activeHost: ProductImportHost | null = null
 let activeStorage: ProductStorage | null = null
-const allowAllBillingAuthority = {
-  validateFeature: () => ({ featureKey: 'test-allow', allowed: true }),
-}
 
 afterEach(() => {
   activeHost?.close()
@@ -38,9 +35,13 @@ it('runs import, selection, AI usage, product creation, and audit as one chain',
     stabilityDelayMs: 0,
     pollIntervalMs: 100,
   }
+  const billingStore = new BillingStore(join(root, 'billing.sqlite'))
+  stores.push(billingStore)
+  const billingAuthority = new LocalBillingAuthority(billingStore)
+  const authority = billingAuthority
   const host = new ProductImportHost({
     logger: { warn: console.warn, error: console.error },
-  }, config, allowAllBillingAuthority)
+  }, config, billingAuthority)
   activeHost = host
   host.startCommandServer()
 
@@ -81,15 +82,26 @@ it('runs import, selection, AI usage, product creation, and audit as one chain',
   expect(second).toBeDefined()
   expect(third).toBeDefined()
 
+  const financeHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${snapshot.commands.token}`,
+    Origin: 'dsh-app://product-ui',
+  }
+  const financeSettingsResponse = await postJson(snapshot.commands.baseUrl, '/finance/settings', financeHeaders, {
+    baseCurrency: 'USD',
+    platformFeeBps: 500,
+    aiInputCostMinorPerMillionTokens: 1_000_000,
+    aiOutputCostMinorPerMillionTokens: 2_000_000,
+    exchangeRates: { USD: 1 },
+  })
+  expect(financeSettingsResponse.status).toBe(200)
+
   // 4) AI success burns quota, commits UsageRecord, and persists an observe-only suggestion.
-  const billingStore = new BillingStore(join(root, 'billing.sqlite'))
-  stores.push(billingStore)
-  const authority = new LocalBillingAuthority(billingStore)
   const tools: any[] = []
   applySelectionTool({
     tools: { register: tool => { tools.push(tool); return () => undefined } },
     llm: successLlm(),
-    billingAuthority: authority,
+    billingAuthority: billingAuthority,
     productApi: host.productApi(),
   }, {
     workspaceId: 'workspace-1',
@@ -110,6 +122,12 @@ it('runs import, selection, AI usage, product creation, and audit as one chain',
   expect(authority.currentQuota('workspace-1').usedInputTokens).toBe(123)
   expect(authority.currentQuota('workspace-1').usedOutputTokens).toBe(45)
   snapshot = readSnapshot(config.dataDir)
+  expect(snapshot.finance.summary).toMatchObject({
+    aiCostMinor: 213,
+    costMinor: 213,
+  })
+  expect(snapshot.finance.sourcePerformance.find((source: any) => source.sourcingItemId === first!.id))
+    .toMatchObject({ costMinor: 213 })
   expect(snapshot.items.find((item: any) => item.id === first!.id)).toMatchObject({
     decision: 'observing', decisionBy: 'ai',
   })

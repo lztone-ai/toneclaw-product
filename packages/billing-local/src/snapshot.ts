@@ -1,13 +1,14 @@
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { LocalBillingAuthority } from './authority.ts'
-import type { PlanDefinition } from './types.ts'
+import type { PlanDefinition, UsageRecord } from './types.ts'
 
 export interface UsageSnapshot {
   generatedAt: string
   workspaceId: string
   plan: PlanDefinition
   subscription: { status: string; planId: string; validTo: string | null }
+  usageRecords: UsageRecord[]
   quota: {
     periodStart: string
     periodEnd: string
@@ -23,11 +24,13 @@ export interface UsageSnapshot {
 export function buildUsageSnapshot(authority: LocalBillingAuthority, workspaceId: string): UsageSnapshot {
   const subscription = authority.currentSubscription(workspaceId)
   const quota = authority.currentQuota(workspaceId)
+  const usageRecords = authority.usageRecords(workspaceId).slice(0, 100)
   return {
     generatedAt: new Date().toISOString(),
     workspaceId,
     plan: authority.planDefinition(),
     subscription,
+    usageRecords,
     quota: {
       periodStart: quota.periodStart,
       periodEnd: quota.periodEnd,

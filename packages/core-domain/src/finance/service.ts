@@ -28,12 +28,26 @@ export interface UpdateFinanceSettingsInput {
   actorId: string
   baseCurrency: string
   platformFeeBps: number
+  aiInputCostMinorPerMillionTokens: number
+  aiOutputCostMinorPerMillionTokens: number
   exchangeRates: Record<string, number>
+}
+
+export interface FinanceAiUsage {
+  id: string
+  inputTokens: number
+  outputTokens: number
+  /** Provider/billing-local estimate in base-currency minor units; token rates are used when null. */
+  costEstimateMinor?: number | null
+  occurredAt: string
+  relatedType: CostLedgerEntry['relatedType']
+  relatedId: string
 }
 
 export interface RebuildFinanceInput {
   workspaceId: string
   actorId: string
+  aiUsage?: FinanceAiUsage[]
 }
 
 export interface FinanceRebuildResult {
@@ -41,6 +55,7 @@ export interface FinanceRebuildResult {
   summary: ProfitSummary
   reports: DailyReport[]
   sourcePerformance: SourcePerformance[]
+  aiCostMinor: number
 }
 
 function auditEvent(
@@ -89,6 +104,8 @@ export async function ensureFinanceSettings(
     workspaceId,
     baseCurrency: 'USD',
     platformFeeBps: 500,
+    aiInputCostMinorPerMillionTokens: 0,
+    aiOutputCostMinorPerMillionTokens: 0,
     exchangeRates: { USD: 1 },
     updatedAt: deps.clock.now().toISOString(),
   }
@@ -108,6 +125,15 @@ export async function updateFinanceSettings(
   if (!Number.isInteger(input.platformFeeBps) || input.platformFeeBps < 0 || input.platformFeeBps > 10_000) {
     throw new Error('platformFeeBps must be an integer from 0 to 10000')
   }
+  const aiRates = [
+    ['aiInputCostMinorPerMillionTokens', input.aiInputCostMinorPerMillionTokens],
+    ['aiOutputCostMinorPerMillionTokens', input.aiOutputCostMinorPerMillionTokens],
+  ] as const
+  for (const [name, value] of aiRates) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${name} must be a non-negative integer`)
+    }
+  }
   const current = await ensureFinanceSettings(deps, input.workspaceId)
   const rates = normalizeRates(input.exchangeRates)
   const base = normalizeCurrency(input.baseCurrency)
@@ -116,6 +142,8 @@ export async function updateFinanceSettings(
     workspaceId: input.workspaceId,
     baseCurrency: base,
     platformFeeBps: input.platformFeeBps,
+    aiInputCostMinorPerMillionTokens: input.aiInputCostMinorPerMillionTokens,
+    aiOutputCostMinorPerMillionTokens: input.aiOutputCostMinorPerMillionTokens,
     exchangeRates: rates,
     updatedAt: deps.clock.now().toISOString(),
   }
@@ -151,6 +179,21 @@ function dateKey(value: string): string {
   return value.slice(0, 10)
 }
 
+function aiCostEstimateMinor(
+  usage: FinanceAiUsage,
+  settings: FinanceSettings,
+): number {
+  if (usage.costEstimateMinor !== undefined && usage.costEstimateMinor !== null) {
+    if (!Number.isSafeInteger(usage.costEstimateMinor) || usage.costEstimateMinor < 0) {
+      throw new Error(`AI usage cost estimate must be a non-negative integer: ${usage.id}`)
+    }
+    return usage.costEstimateMinor
+  }
+  const inputMinor = usage.inputTokens * settings.aiInputCostMinorPerMillionTokens / 1_000_000
+  const outputMinor = usage.outputTokens * settings.aiOutputCostMinorPerMillionTokens / 1_000_000
+  return Math.round(inputMinor + outputMinor)
+}
+
 /** Deterministic, idempotent rebuild. Calculated rows are replaced; manual rows survive. */
 export async function rebuildFinance(
   deps: FinanceDeps,
@@ -164,6 +207,19 @@ export async function rebuildFinance(
   await deps.costEntries.deleteCalculated(input.workspaceId)
 
   const costs: Array<Omit<CostLedgerEntry, 'id' | 'workspaceId'>> = []
+  for (const usage of input.aiUsage ?? []) {
+    const amountMinor = aiCostEstimateMinor(usage, settings)
+    if (amountMinor > 0) {
+      costs.push({
+        relatedType: usage.relatedType, relatedId: usage.relatedId,
+        costType: 'ai_usage', direction: 'outflow', amountMinor,
+        currency: settings.baseCurrency, baseAmountMinor: amountMinor,
+        baseCurrency: settings.baseCurrency, exchangeRateSnapshot: 1,
+        occurredAt: usage.occurredAt, sourceType: 'calculated',
+        sourceKey: `ai_usage:${usage.id}`, notes: 'AI token usage cost estimate',
+      })
+    }
+  }
   for (const order of orders) {
     if (order.status === 'canceled') continue
     const feeMinor = Math.round(order.subtotalMinor * settings.platformFeeBps / 10_000)
@@ -243,6 +299,9 @@ export async function rebuildFinance(
   const refundMinor = persistedCosts
     .filter(entry => entry.costType === 'adjustment' && entry.direction === 'inflow')
     .reduce((sum, entry) => sum + entry.baseAmountMinor, 0)
+  const aiCostMinor = persistedCosts
+    .filter(entry => entry.costType === 'ai_usage' && entry.direction === 'outflow')
+    .reduce((sum, entry) => sum + entry.baseAmountMinor, 0)
   const generatedAt = deps.clock.now().toISOString()
   const periodStart = orders.map(order => order.placedAt).sort()[0] ?? generatedAt
   const periodEnd = orders.map(order => order.placedAt).sort().at(-1) ?? generatedAt
@@ -250,7 +309,7 @@ export async function rebuildFinance(
     id: `summary-${input.workspaceId}`,
     workspaceId: input.workspaceId,
     scopeType: 'period', scopeId: 'all',
-    revenueMinor, costMinor,
+    revenueMinor, costMinor, aiCostMinor,
     grossProfitMinor: revenueMinor - costMinor,
     netProfitMinor: revenueMinor - costMinor + refundMinor,
     currency: settings.baseCurrency, periodStart, periodEnd,
@@ -301,11 +360,24 @@ export async function rebuildFinance(
     current.netProfitMinor += orderRevenue - procurementCost
     sourceMap.set(procurement.sourcingItemId, current)
   }
+  for (const cost of persistedCosts) {
+    if (cost.costType !== 'ai_usage' || cost.relatedType !== 'sourcing_item') continue
+    const current = sourceMap.get(cost.relatedId) ?? {
+      sourcingItemId: cost.relatedId, orderCount: 0, revenueMinor: 0,
+      costMinor: 0, netProfitMinor: 0, currency: settings.baseCurrency,
+    }
+    current.costMinor += cost.baseAmountMinor
+    current.netProfitMinor -= cost.baseAmountMinor
+    sourceMap.set(cost.relatedId, current)
+  }
   auditEvent(deps, input.workspaceId, 'finance.rebuilt', input.workspaceId, {
     orderCount: orders.length, procurementCount: procurements.length,
-    costCount: persistedCosts.length, reportCount: reports.length,
+    costCount: persistedCosts.length, aiCostMinor, reportCount: reports.length,
   }, input.actorId)
-  return { settings, summary, reports, sourcePerformance: [...sourceMap.values()] }
+  return {
+    settings, summary, reports,
+    sourcePerformance: [...sourceMap.values()], aiCostMinor,
+  }
 }
 
 export type FinanceViewData = Awaited<ReturnType<typeof rebuildFinance>>
