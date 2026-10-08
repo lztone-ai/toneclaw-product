@@ -13,6 +13,7 @@ import {
 } from '@toneclaw/core-domain'
 import {
   AdapterUnsupportedError,
+  type AdapterFinding,
   type AuthorizationCallbackPayload,
   type AuthorizationResult,
   type AuthorizationStart,
@@ -43,6 +44,8 @@ export interface MockAdapterOptions {
   now?: () => number
   /** Credential TTL in ms; null disables expiry. Default 1h demonstrates token_expired. */
   credentialTtlMs?: number | null
+  /** Review window in ms before a submitted listing goes live; null freezes platform_review. Default 60s. */
+  listingReviewMs?: number | null
 }
 
 export class MockTemuAdapter implements MarketplaceAdapter {
@@ -50,11 +53,37 @@ export class MockTemuAdapter implements MarketplaceAdapter {
   private readonly connections = new Map<string, MockConnection>()
   private readonly now: () => number
   private readonly ttl: number | null
+  private readonly listingReviewMs: number | null
+  private readonly submittedListings = new Map<string, number>()
   private sellerSeq = 0
+  private listingSeq = 0
+
+  /** TAC §5.2: minimal category set with Temu-style numeric ids and a real parent path. */
+  private readonly categories: PlatformCategory[] = [
+    { platformCategoryId: '10001', parentPlatformCategoryId: null, name: 'Home & Kitchen' },
+    { platformCategoryId: '10005', parentPlatformCategoryId: '10001', name: 'Kitchen Appliances' },
+    { platformCategoryId: '1000502', parentPlatformCategoryId: '10005', name: 'Blenders' },
+    { platformCategoryId: '10010', parentPlatformCategoryId: '10001', name: 'Storage & Organization' },
+    { platformCategoryId: '1001001', parentPlatformCategoryId: '10010', name: 'Storage Boxes' },
+  ]
+
+  /** TAC §5.2: per-category required attributes with value schemas shaped like Temu's attribute API. */
+  private readonly attributeSchemas: Record<string, PlatformAttribute[]> = {
+    '1000502': [
+      { platformCategoryId: '1000502', attributeKey: 'material', name: 'Material', required: true, valueSchema: { type: 'string', enum: ['Cotton', 'Linen', 'Polyester', 'Stainless Steel'] } },
+      { platformCategoryId: '1000502', attributeKey: 'capacity_ml', name: 'Capacity', required: true, valueSchema: { type: 'number', minimum: 100, maximum: 5000, unit: 'ml' } },
+      { platformCategoryId: '1000502', attributeKey: 'power_w', name: 'Power', required: false, valueSchema: { type: 'number', minimum: 100, maximum: 3000, unit: 'W' } },
+    ],
+    '1001001': [
+      { platformCategoryId: '1001001', attributeKey: 'material', name: 'Material', required: true, valueSchema: { type: 'string', enum: ['Fabric', 'Plastic', 'Non-woven Fabric'] } },
+      { platformCategoryId: '1001001', attributeKey: 'capacity_l', name: 'Capacity', required: false, valueSchema: { type: 'number', minimum: 5, maximum: 200, unit: 'L' } },
+    ],
+  }
 
   constructor(options: MockAdapterOptions = {}) {
     this.now = options.now ?? Date.now
     this.ttl = options.credentialTtlMs === undefined ? 3_600_000 : options.credentialTtlMs
+    this.listingReviewMs = options.listingReviewMs === undefined ? 60_000 : options.listingReviewMs
   }
 
   async createAuthorization(request: AuthorizationStartRequest): Promise<AuthorizationStart> {
@@ -150,36 +179,97 @@ export class MockTemuAdapter implements MarketplaceAdapter {
   }
 
   async fetchCategories(_storeId: string): Promise<PlatformCategory[]> {
-    return [
-      { platformCategoryId: 'mock-cat-root', parentPlatformCategoryId: null, name: 'Home & Kitchen' },
-      { platformCategoryId: 'mock-cat-blender', parentPlatformCategoryId: 'mock-cat-root', name: 'Blenders' },
-    ]
+    return this.categories
   }
 
   async fetchAttributes(_storeId: string, platformCategoryId: string): Promise<PlatformAttribute[]> {
-    return [
-      { platformCategoryId, attributeKey: 'material', name: 'Material', required: true, valueSchema: null },
-      { platformCategoryId, attributeKey: 'capacity_ml', name: 'Capacity', required: false, valueSchema: null },
+    return this.attributeSchemas[platformCategoryId] ?? [
+      { platformCategoryId, attributeKey: 'material', name: 'Material', required: true, valueSchema: { type: 'string', enum: ['Cotton', 'Linen', 'Plastic'] } },
     ]
   }
 
-  async validateProductFit(_storeId: string, _product: ProductFitInput): Promise<ProductFitResult> {
+  /** TAC §5.3: category mapping / required attributes / image specs / price anomaly checks. */
+  async validateProductFit(_storeId: string, product: ProductFitInput): Promise<ProductFitResult> {
+    const findings: AdapterFinding[] = []
+    if (!this.categories.some(category => category.platformCategoryId === product.coreCategoryId)) {
+      findings.push({
+        code: 'mock.fit.category_unknown', severity: 'error',
+        message: `platform category ${product.coreCategoryId} is not in the Temu category tree`,
+        fieldPath: 'coreCategoryId',
+      })
+    }
+    for (const attribute of await this.fetchAttributes(_storeId, product.coreCategoryId)) {
+      const value = product.attributes[attribute.attributeKey]
+      if (value === undefined || value === '') {
+        if (attribute.required) {
+          findings.push({
+            code: 'mock.fit.attribute_missing', severity: 'error',
+            message: `required attribute ${attribute.attributeKey} is missing`,
+            fieldPath: `attributes.${attribute.attributeKey}`,
+          })
+        }
+        continue
+      }
+      const schema = attribute.valueSchema as { enum?: string[] } | null
+      if (schema?.enum !== undefined && !schema.enum.includes(value)) {
+        findings.push({
+          code: 'mock.fit.attribute_invalid', severity: 'error',
+          message: `attribute ${attribute.attributeKey} must be one of: ${schema.enum.join(', ')}`,
+          fieldPath: `attributes.${attribute.attributeKey}`,
+        })
+      }
+    }
+    if (product.imageUrls.length === 0) {
+      findings.push({
+        code: 'mock.fit.image_missing', severity: 'error',
+        message: 'at least one main image is required',
+        fieldPath: 'imageUrls',
+      })
+    } else if (product.imageUrls.length > 10) {
+      findings.push({
+        code: 'mock.fit.image_too_many', severity: 'warning',
+        message: 'at most 10 images are allowed per listing',
+        fieldPath: 'imageUrls',
+      })
+    }
+    if (product.priceMinor <= 0 || product.priceMinor > 5_000_00) {
+      findings.push({
+        code: 'mock.fit.price_anomaly', severity: 'warning',
+        message: 'price is outside the ordinary range and needs review',
+        fieldPath: 'priceMinor',
+      })
+    }
     return {
-      result: 'fit',
-      findings: [{ code: 'mock.fit.passed', severity: 'info', message: 'mock fit passed', fieldPath: null }],
+      result: findings.some(finding => finding.severity === 'error') ? 'not_fit'
+        : findings.some(finding => finding.severity === 'warning') ? 'needs_info' : 'fit',
+      findings: findings.length === 0
+        ? [{ code: 'mock.fit.passed', severity: 'info', message: 'mock fit checks passed', fieldPath: null }]
+        : findings,
     }
   }
 
-  async createListing(_storeId: string, listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
-    return {
-      externalListingId: `MOCK-LISTING-${listingDraft.listingDraftId.slice(-8).toUpperCase()}`,
-      submitted: true,
-      rawStatus: 'submitted',
-    }
+  /** TAC §6.1: numeric Temu-style goods id; raw status uses the platform vocabulary (TAC §7). */
+  async createListing(_storeId: string, _listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
+    const externalListingId = `3${String(++this.listingSeq).padStart(9, '0')}`
+    this.submittedListings.set(externalListingId, this.now())
+    return { externalListingId, submitted: true, rawStatus: '已提交' }
   }
 
+  /** TAC §7: 平台审核中 → 在售 progression; null listingReviewMs freezes review. */
   async fetchListingStatus(_storeId: string, externalListingId: string): Promise<ListingStatusResult> {
-    return { externalListingId, coreStatus: 'live', rawStatus: 'live' }
+    const submittedAt = this.submittedListings.get(externalListingId)
+    if (submittedAt === undefined) throw new Error(`mock listing not found: ${externalListingId}`)
+    if (this.listingReviewMs === null || this.now() - submittedAt < this.listingReviewMs) {
+      return { externalListingId, coreStatus: 'platform_review', rawStatus: '平台审核中' }
+    }
+    return { externalListingId, coreStatus: 'live', rawStatus: '在售' }
+  }
+
+  /** Test hook: fast-forwards a submitted listing out of platform review. */
+  passListingReview(externalListingId: string): void {
+    const submittedAt = this.submittedListings.get(externalListingId)
+    if (submittedAt === undefined) throw new Error(`mock listing not found: ${externalListingId}`)
+    this.submittedListings.set(externalListingId, this.now() - (this.listingReviewMs ?? 0))
   }
 
   async importListingResult(_storeId: string, _importedListingPayload: unknown): Promise<ManualImportResult> {

@@ -82,7 +82,7 @@ it('generates a listing, adopts content snapshots, validates it, and auto-publis
     listingDraftId,
     title: 'Edited Linen storage box',
     description: 'Governed listing description',
-    platformCategoryId: 'mock-cat-root',
+    platformCategoryId: '1000502',
     attributes: [{ key: 'material', value: 'Linen', valueType: 'string' }],
     priceMinor: 8990,
     stockQty: 80,
@@ -113,9 +113,12 @@ it('generates a listing, adopts content snapshots, validates it, and auto-publis
   expect(publishJobId).not.toBe('')
   expect(publishApproved['platformListingId']).not.toBeNull()
   const externalListingId = String(publishApproved['externalListingId'])
-  expect(externalListingId).toMatch(/^MOCK-LISTING-/)
-  expect(publishApproved['coreStatus']).toBe('live')
+  expect(externalListingId).toMatch(/^3\d{9}$/)
+  expect(publishApproved['coreStatus']).toBe('platform_review')
   const platformListingId = String(publishApproved['platformListingId'])
+  await post('/platform-listings/status', {
+    platformListingId, coreStatus: 'live', rawStatus: '在售',
+  })
 
   snapshot = JSON.parse(readFileSync(join(config.dataDir, 'sourcing.json'), 'utf8'))
   expect(snapshot.listings).toHaveLength(1)
@@ -174,5 +177,6 @@ it('generates a listing, adopts content snapshots, validates it, and auto-publis
     'listing.manual_package_created',
     'listing.publish_confirmation_approved',
     'listing.auto_published',
+    'listing.platform_status_updated',
   ]))
 })

@@ -101,7 +101,7 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
     listingDraftId,
     title: 'Mock Linen storage box',
     description: 'Governed mock listing description',
-    platformCategoryId: 'mock-cat-root',
+    platformCategoryId: '1000502',
     attributes: [{ key: 'material', value: 'Linen', valueType: 'string' }],
     priceMinor: 8990,
     stockQty: 80,
@@ -120,8 +120,13 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
     listingDraftId, decision: 'approved', reason: 'Mock publish approval',
   })
   expect(publishApproved.body.platformListingId).not.toBeNull()
-  expect(publishApproved.body.coreStatus).toBe('live')
+  expect(publishApproved.body.coreStatus).toBe('platform_review')
   const platformListingId = String(publishApproved.body.platformListingId)
+  await post('/platform-listings/status', {
+    platformListingId,
+    coreStatus: 'live',
+    rawStatus: '在售',
+  })
 
   // S4: order -> procurement -> hard payment gate -> provider shipment -> delivery -> refund.
   const imported = await post('/commerce/orders/import', {
@@ -209,6 +214,7 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
     'product.create_from_selection',
     'listing.draft_created',
     'listing.auto_published',
+    'listing.platform_status_updated',
     'order.imported',
     'procurement.created',
     'payment.confirmed',
