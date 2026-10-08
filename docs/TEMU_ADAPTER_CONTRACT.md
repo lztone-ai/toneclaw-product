@@ -572,3 +572,24 @@ Adapter 必须遵守：
 | 平台错误码清单 | 决定 ErrorCatalog 初始版本 |
 
 在这些项确认前，Temu Adapter 只能完成接口层和人工降级路径的框架实现，不能宣称完成真实闭环。
+
+## 15. 真实模型核实记录（2026-10-09，公开资料检索）
+
+> 依据：Temu 卖家大学（kuajingmaihuo.com）`goods.create` 对接文档、第三方铺货开放接口文档与 Go SDK 类型定义。最终以官方开放平台文档与真实联调为准。
+
+| 维度 | 已核实的真实模型 | 对 mock 塑形的影响 |
+| --- | --- | --- |
+| 属性标识 | 数字模板体系 `pid` / `templatePid` / `vid`，值选项来自 `attrs.get` | mock valueSchema 携带 pid / templatePid / vidOptions；attributeKey 保留为 core 侧稳定映射键（TAC §5.1） |
+| 属性值 | `vid` + `propValue` + `valueUnit` + `numberInputValue` | mock `createListing` 内部按模板解析为该形状 |
+| 类目 | `cat1Id`~`cat10Id` 最多 10 级，缺级传 0 | mock 最小树 3 级，cat4~10Id 传 0 |
+| 必填属性 | 每个叶子类目规定必填属性集 | mock attributeSchemas 按叶子类目组织 |
+| 属性层级依赖 | 供电方式 = USB充电 / 电池式 → 需填电池容量；材质 = 原木 → 需填木种 | mock `dependsOn` 模拟两条链，required 仅在依赖满足时生效 |
+| 半托管发品 | `productWarehouseRouteReq` 必传 | mock goods create 形状含仓库路由 |
+| 发品请求 | `goods.create`：productName / carouselImageUrls / productPropertyReqs / ... | mock `lastGoodsCreateRequest()` 提供形状探针 |
+
+仍未核实 / 待真实联调（补充 §14）：
+
+- `attrs.get` 精确响应结构与真实 pid / vid 值；
+- SKU / SKC 规格结构（`productSpecPropertyReqs` / `productSkcReqs`）未在 mock 建模；
+- 真实类目树数据、官方错误码清单与频率限制；
+- 平台原始状态词与 §7 映射表的逐词对照。

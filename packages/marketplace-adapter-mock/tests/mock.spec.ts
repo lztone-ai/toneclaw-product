@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { MockTemuAdapter } from '../src/index.ts'
+import { MockTemuAdapter, type TemuAttributeTemplate } from '../src/index.ts'
 
 function fixedNow(): () => number {
   let tick = 1_000_000
@@ -56,7 +56,8 @@ it('expires credentials by TTL and probes the mock capability surface', async ()
 
   const submitted = await adapter.createListing('mock-store-conn-2', {
     listingDraftId: 'ld-1', title: 'x', description: 'x', platformCategoryId: '1000502',
-    attributes: {}, priceMinor: 100, currency: 'USD', stockQty: 1, imageUrls: [],
+    attributes: {}, priceMinor: 100, currency: 'USD', stockQty: 1,
+    imageUrls: ['https://cdn.example.com/main.jpg'],
   })
   expect(submitted.submitted).toBe(true)
   expect(submitted.externalListingId).toMatch(/^3\d{9}$/)
@@ -69,7 +70,7 @@ it('expires credentials by TTL and probes the mock capability surface', async ()
   expect(store.status).toBe('expired')
 })
 
-it('serves Temu-shaped categories, attribute schemas, and the review lifecycle (TAC §5/§7)', async () => {
+it('serves Temu-shaped attribute templates, dependencies, and the review lifecycle (TAC §5/§7/§15)', async () => {
   let now = 1_000_000
   const adapter = new MockTemuAdapter({ now: () => now, credentialTtlMs: null, listingReviewMs: 120_000 })
 
@@ -82,17 +83,35 @@ it('serves Temu-shaped categories, attribute schemas, and the review lifecycle (
   const attributes = await adapter.fetchAttributes('store-1', '1000502')
   const material = attributes.find(attribute => attribute.attributeKey === 'material')
   expect(material).toMatchObject({ required: true })
-  expect((material!.valueSchema as { enum: string[] }).enum).toContain('Linen')
-  expect(attributes.find(attribute => attribute.attributeKey === 'capacity_ml'))
-    .toMatchObject({ required: true })
+  expect(material!.valueSchema).toMatchObject({ pid: 1001, templatePid: 1000, inputType: 'enum' })
+  expect((material!.valueSchema as TemuAttributeTemplate).vidOptions)
+    .toContainEqual({ vid: 102, name: 'Linen' })
+  const batteryCapacity = attributes.find(attribute => attribute.attributeKey === 'battery_capacity_mah')
+  expect(batteryCapacity).toMatchObject({ required: true })
+  expect((batteryCapacity!.valueSchema as TemuAttributeTemplate).dependsOn)
+    .toEqual(expect.arrayContaining([{ attributeKey: 'power_source', vid: 402 }]))
 
   const submitted = await adapter.createListing('store-1', {
-    listingDraftId: 'ld-2', title: 'x', description: 'x', platformCategoryId: '1000502',
-    attributes: { material: 'Linen', capacity_ml: '1500' }, priceMinor: 8990, currency: 'USD',
+    listingDraftId: 'ld-2', title: 'Mock Blender', description: 'x', platformCategoryId: '1000502',
+    attributes: { material: 'Linen', capacity_ml: '1500', power_source: 'USB Rechargeable', battery_capacity_mah: '2000' },
+    priceMinor: 8990, currency: 'USD',
     stockQty: 10, imageUrls: ['https://cdn.example.com/main.jpg'],
   })
   const externalListingId = submitted.externalListingId
   expect(externalListingId).toMatch(/^3\d{9}$/)
+
+  const goodsCreate = adapter.lastGoodsCreateRequest('store-1')
+  expect(goodsCreate).toMatchObject({
+    productName: 'Mock Blender',
+    cat1Id: 10001, cat2Id: 10005, cat3Id: 1000502, cat4Id: 0, cat10Id: 0,
+    productWarehouseRouteReq: { warehouseId: 1, shipType: 1 },
+  })
+  expect(goodsCreate!.carouselImageUrls).toEqual(['https://cdn.example.com/main.jpg'])
+  expect(goodsCreate!.productPropertyReqs.find(property => property.pid === 1001))
+    .toMatchObject({ vid: 102, propValue: 'Linen' })
+  expect(goodsCreate!.productPropertyReqs.find(property => property.pid === 1005))
+    .toMatchObject({ numberInputValue: 2000, valueUnit: 'mAh' })
+
   await expect(adapter.fetchListingStatus('store-1', externalListingId ?? 'missing'))
     .resolves.toMatchObject({ coreStatus: 'platform_review', rawStatus: '平台审核中' })
 
@@ -102,13 +121,22 @@ it('serves Temu-shaped categories, attribute schemas, and the review lifecycle (
 
   const fit = await adapter.validateProductFit('store-1', {
     productId: 'p-1', title: 'x', coreCategoryId: '1000502',
-    attributes: { material: 'Linen', capacity_ml: '1500' },
+    attributes: { material: 'Linen', capacity_ml: '1500', power_source: 'USB Rechargeable', battery_capacity_mah: '2000' },
     priceMinor: 8990, currency: 'USD',
     imageUrls: ['https://cdn.example.com/main.jpg'],
   })
   expect(fit.result).toBe('fit')
+  const missingBattery = await adapter.validateProductFit('store-1', {
+    productId: 'p-2', title: 'x', coreCategoryId: '1000502',
+    attributes: { material: 'Linen', capacity_ml: '1500', power_source: 'USB Rechargeable' },
+    priceMinor: 8990, currency: 'USD',
+    imageUrls: ['https://cdn.example.com/main.jpg'],
+  })
+  expect(missingBattery.result).toBe('not_fit')
+  expect(missingBattery.findings.map(finding => finding.fieldPath))
+    .toContain('attributes.battery_capacity_mah')
   const notFit = await adapter.validateProductFit('store-1', {
-    productId: 'p-2', title: 'x', coreCategoryId: '99999',
+    productId: 'p-3', title: 'x', coreCategoryId: '99999',
     attributes: {}, priceMinor: 8990, currency: 'USD', imageUrls: [],
   })
   expect(notFit.result).toBe('not_fit')

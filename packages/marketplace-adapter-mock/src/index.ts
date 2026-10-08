@@ -48,6 +48,43 @@ export interface MockAdapterOptions {
   listingReviewMs?: number | null
 }
 
+/** Temu attribute template verified against goods.create / attrs.get (TAC §15). */
+export interface TemuAttributeTemplate {
+  pid: number
+  templatePid: number | null
+  inputType: 'enum' | 'number' | 'text'
+  vidOptions: { vid: number; name: string }[] | null
+  unit: string | null
+  /** Real templates chain dependent attributes: collected only when a parent vid matches. */
+  dependsOn?: { attributeKey: string; vid: number }[]
+}
+
+/** goods.create shape probe: what a real semi-managed submit must carry (TAC §15). */
+export interface MockGoodsCreateRequest {
+  productName: string
+  cat1Id: number
+  cat2Id: number
+  cat3Id: number
+  cat4Id: number
+  cat5Id: number
+  cat6Id: number
+  cat7Id: number
+  cat8Id: number
+  cat9Id: number
+  cat10Id: number
+  carouselImageUrls: string[]
+  productPropertyReqs: {
+    pid: number
+    templatePid: number | null
+    vid: number | null
+    propName: string
+    propValue: string
+    valueUnit: string | null
+    numberInputValue: number | null
+  }[]
+  productWarehouseRouteReq: { warehouseId: number; shipType: number }
+}
+
 export class MockTemuAdapter implements MarketplaceAdapter {
   readonly platform = 'temu' as const
   private readonly connections = new Map<string, MockConnection>()
@@ -70,15 +107,19 @@ export class MockTemuAdapter implements MarketplaceAdapter {
   /** TAC §5.2: per-category required attributes with value schemas shaped like Temu's attribute API. */
   private readonly attributeSchemas: Record<string, PlatformAttribute[]> = {
     '1000502': [
-      { platformCategoryId: '1000502', attributeKey: 'material', name: 'Material', required: true, valueSchema: { type: 'string', enum: ['Cotton', 'Linen', 'Polyester', 'Stainless Steel'] } },
-      { platformCategoryId: '1000502', attributeKey: 'capacity_ml', name: 'Capacity', required: true, valueSchema: { type: 'number', minimum: 100, maximum: 5000, unit: 'ml' } },
-      { platformCategoryId: '1000502', attributeKey: 'power_w', name: 'Power', required: false, valueSchema: { type: 'number', minimum: 100, maximum: 3000, unit: 'W' } },
+      { platformCategoryId: '1000502', attributeKey: 'material', name: 'Material', required: true, valueSchema: { pid: 1001, templatePid: 1000, inputType: 'enum', vidOptions: [{ vid: 101, name: 'Cotton' }, { vid: 102, name: 'Linen' }, { vid: 103, name: 'Polyester' }, { vid: 104, name: 'Stainless Steel' }], unit: null } },
+      { platformCategoryId: '1000502', attributeKey: 'capacity_ml', name: 'Capacity', required: true, valueSchema: { pid: 1002, templatePid: 1000, inputType: 'number', vidOptions: null, unit: 'ml' } },
+      { platformCategoryId: '1000502', attributeKey: 'power_w', name: 'Power', required: false, valueSchema: { pid: 1003, templatePid: 1000, inputType: 'number', vidOptions: null, unit: 'W' } },
+      { platformCategoryId: '1000502', attributeKey: 'power_source', name: 'Power Supply', required: true, valueSchema: { pid: 1004, templatePid: 1000, inputType: 'enum', vidOptions: [{ vid: 401, name: 'Corded Electric' }, { vid: 402, name: 'USB Rechargeable' }, { vid: 403, name: 'Battery' }], unit: null } },
+      { platformCategoryId: '1000502', attributeKey: 'battery_capacity_mah', name: 'Battery Capacity', required: true, valueSchema: { pid: 1005, templatePid: 1000, inputType: 'number', vidOptions: null, unit: 'mAh', dependsOn: [{ attributeKey: 'power_source', vid: 402 }, { attributeKey: 'power_source', vid: 403 }] } },
     ],
     '1001001': [
-      { platformCategoryId: '1001001', attributeKey: 'material', name: 'Material', required: true, valueSchema: { type: 'string', enum: ['Fabric', 'Plastic', 'Non-woven Fabric'] } },
-      { platformCategoryId: '1001001', attributeKey: 'capacity_l', name: 'Capacity', required: false, valueSchema: { type: 'number', minimum: 5, maximum: 200, unit: 'L' } },
+      { platformCategoryId: '1001001', attributeKey: 'material', name: 'Material', required: true, valueSchema: { pid: 2001, templatePid: 2000, inputType: 'enum', vidOptions: [{ vid: 201, name: 'Fabric' }, { vid: 202, name: 'Plastic' }, { vid: 203, name: 'Non-woven Fabric' }, { vid: 204, name: 'Wood' }], unit: null } },
+      { platformCategoryId: '1001001', attributeKey: 'wood_species', name: 'Wood Species', required: true, valueSchema: { pid: 2002, templatePid: 2000, inputType: 'enum', vidOptions: [{ vid: 2101, name: 'Oak' }, { vid: 2102, name: 'Pine' }, { vid: 2103, name: 'Walnut' }], unit: null, dependsOn: [{ attributeKey: 'material', vid: 204 }] } },
+      { platformCategoryId: '1001001', attributeKey: 'capacity_l', name: 'Capacity', required: false, valueSchema: { pid: 2003, templatePid: 2000, inputType: 'number', vidOptions: null, unit: 'L' } },
     ],
   }
+  private readonly lastGoodsCreateRequests = new Map<string, MockGoodsCreateRequest>()
 
   constructor(options: MockAdapterOptions = {}) {
     this.now = options.now ?? Date.now
@@ -198,10 +239,18 @@ export class MockTemuAdapter implements MarketplaceAdapter {
         fieldPath: 'coreCategoryId',
       })
     }
-    for (const attribute of await this.fetchAttributes(_storeId, product.coreCategoryId)) {
+    const templates = await this.fetchAttributes(_storeId, product.coreCategoryId)
+    const templateByKey = new Map(templates.map(attribute => [attribute.attributeKey, attribute.valueSchema as TemuAttributeTemplate]))
+    for (const attribute of templates) {
+      const template = attribute.valueSchema as TemuAttributeTemplate
+      const dependsOnSatisfied = template.dependsOn === undefined || template.dependsOn.some(dependency => {
+        const parentTemplate = templateByKey.get(dependency.attributeKey)
+        const parentValue = product.attributes[dependency.attributeKey]
+        return parentTemplate?.vidOptions?.some(option => option.name === parentValue && option.vid === dependency.vid) === true
+      })
       const value = product.attributes[attribute.attributeKey]
       if (value === undefined || value === '') {
-        if (attribute.required) {
+        if (attribute.required && dependsOnSatisfied) {
           findings.push({
             code: 'mock.fit.attribute_missing', severity: 'error',
             message: `required attribute ${attribute.attributeKey} is missing`,
@@ -210,11 +259,16 @@ export class MockTemuAdapter implements MarketplaceAdapter {
         }
         continue
       }
-      const schema = attribute.valueSchema as { enum?: string[] } | null
-      if (schema?.enum !== undefined && !schema.enum.includes(value)) {
+      if (template.inputType === 'enum' && template.vidOptions?.some(option => option.name === value) !== true) {
         findings.push({
           code: 'mock.fit.attribute_invalid', severity: 'error',
-          message: `attribute ${attribute.attributeKey} must be one of: ${schema.enum.join(', ')}`,
+          message: `attribute ${attribute.attributeKey} must be one of: ${(template.vidOptions ?? []).map(option => option.name).join(', ')}`,
+          fieldPath: `attributes.${attribute.attributeKey}`,
+        })
+      } else if (template.inputType === 'number' && Number.isNaN(Number(value))) {
+        findings.push({
+          code: 'mock.fit.attribute_invalid', severity: 'error',
+          message: `attribute ${attribute.attributeKey} must be a number`,
           fieldPath: `attributes.${attribute.attributeKey}`,
         })
       }
@@ -248,11 +302,77 @@ export class MockTemuAdapter implements MarketplaceAdapter {
     }
   }
 
-  /** TAC §6.1: numeric Temu-style goods id; raw status uses the platform vocabulary (TAC §7). */
-  async createListing(_storeId: string, _listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
+  /** TAC §6.1: translate to the verified goods.create shape, then submit (TAC §15). */
+  async createListing(storeId: string, listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
+    const request = await this.buildGoodsCreateRequest(storeId, listingDraft)
     const externalListingId = `3${String(++this.listingSeq).padStart(9, '0')}`
+    this.lastGoodsCreateRequests.set(storeId, request)
     this.submittedListings.set(externalListingId, this.now())
     return { externalListingId, submitted: true, rawStatus: '已提交' }
+  }
+
+  /** goods.create shape probe: what the real adapter must send for semi-managed (TAC §15). */
+  lastGoodsCreateRequest(storeId: string): MockGoodsCreateRequest | undefined {
+    return this.lastGoodsCreateRequests.get(storeId)
+  }
+
+  private async buildGoodsCreateRequest(storeId: string, payload: ListingSubmitPayload): Promise<MockGoodsCreateRequest> {
+    const chain: PlatformCategory[] = []
+    let cursor: PlatformCategory | undefined = this.categories.find(category => category.platformCategoryId === payload.platformCategoryId)
+    if (cursor === undefined) throw new Error(`platform category ${payload.platformCategoryId} is not in the Temu category tree`)
+    while (cursor !== undefined) {
+      chain.unshift(cursor)
+      const parentId: string | null = cursor.parentPlatformCategoryId
+      cursor = parentId === null ? undefined : this.categories.find(category => category.platformCategoryId === parentId)
+    }
+    const catIds = Array.from({ length: 10 }, (_, index) => {
+      const node = chain[index]
+      return node === undefined ? 0 : Number(node.platformCategoryId)
+    })
+    if (payload.imageUrls.length === 0) throw new Error('at least one carousel image is required')
+    if (payload.imageUrls.length > 10) throw new Error('at most 10 carousel images are allowed')
+    const templates = await this.fetchAttributes(storeId, payload.platformCategoryId)
+    const templateByKey = new Map(templates.map(attribute => [attribute.attributeKey, attribute.valueSchema as TemuAttributeTemplate]))
+    const productPropertyReqs: MockGoodsCreateRequest['productPropertyReqs'] = []
+    for (const [key, rawValue] of Object.entries(payload.attributes)) {
+      const attribute = templates.find(candidate => candidate.attributeKey === key)
+      if (attribute === undefined) throw new Error(`attribute ${key} is not in the category template`)
+      const template = templateByKey.get(key)!
+      const dependsOnSatisfied = template.dependsOn === undefined || template.dependsOn.some(dependency => {
+        const parentTemplate = templateByKey.get(dependency.attributeKey)
+        const parentValue = payload.attributes[dependency.attributeKey]
+        return parentTemplate?.vidOptions?.some(option => option.name === parentValue && option.vid === dependency.vid) === true
+      })
+      if (!dependsOnSatisfied) continue
+      if (template.inputType === 'enum') {
+        const option = template.vidOptions?.find(candidate => candidate.name === rawValue)
+        if (option === undefined) throw new Error(`attribute ${key} must be one of: ${(template.vidOptions ?? []).map(candidate => candidate.name).join(', ')}`)
+        productPropertyReqs.push({ pid: template.pid, templatePid: template.templatePid, vid: option.vid, propName: attribute.name, propValue: rawValue, valueUnit: null, numberInputValue: null })
+      } else if (template.inputType === 'number') {
+        const numeric = Number(rawValue)
+        if (Number.isNaN(numeric)) throw new Error(`attribute ${key} must be a number`)
+        productPropertyReqs.push({ pid: template.pid, templatePid: template.templatePid, vid: null, propName: attribute.name, propValue: rawValue, valueUnit: template.unit, numberInputValue: numeric })
+      } else {
+        productPropertyReqs.push({ pid: template.pid, templatePid: template.templatePid, vid: null, propName: attribute.name, propValue: rawValue, valueUnit: null, numberInputValue: null })
+      }
+    }
+    return {
+      productName: payload.title,
+      cat1Id: catIds[0]!,
+      cat2Id: catIds[1]!,
+      cat3Id: catIds[2]!,
+      cat4Id: catIds[3]!,
+      cat5Id: catIds[4]!,
+      cat6Id: catIds[5]!,
+      cat7Id: catIds[6]!,
+      cat8Id: catIds[7]!,
+      cat9Id: catIds[8]!,
+      cat10Id: catIds[9]!,
+      carouselImageUrls: [...payload.imageUrls],
+      productPropertyReqs,
+      // Semi-managed goods.create requires a warehouse routing decision (TAC §15).
+      productWarehouseRouteReq: { warehouseId: 1, shipType: 1 },
+    }
   }
 
   /** TAC §7: 平台审核中 → 在售 progression; null listingReviewMs freezes review. */
