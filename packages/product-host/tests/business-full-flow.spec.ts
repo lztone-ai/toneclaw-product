@@ -82,7 +82,7 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
   const productId = String(created.body.productId)
   const variantId = String(created.body.variantId)
 
-  // S3: mock authorization and governed manual listing lifecycle.
+  // S3: mock authorization and governed auto-publish listing lifecycle.
   const connection = await post('/platform/connections/start', {})
   expect(connection.status).toBe(200)
   const authorized = await post('/platform/connections/callback', {
@@ -119,25 +119,9 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
   const publishApproved = await post('/listings/publish-confirmation/decide', {
     listingDraftId, decision: 'approved', reason: 'Mock publish approval',
   })
-  const publishJobId = String(publishApproved.body.publishJobId)
-  await post('/listings/publish/manual-fallback', {
-    publishJobId,
-    manualPackageId: packaged.body.packageId,
-    reason: 'Mock listing.create unavailable',
-  })
-  await post('/listings/manual-package/submit', { manualPackageId: packaged.body.packageId })
-  const manualResult = await post('/listings/manual-result/import', {
-    manualPackageId: packaged.body.packageId,
-    externalListingId: 'MOCK-LISTING-FLOW-001',
-    coreStatus: 'submitted',
-    rawStatus: 'submitted',
-  })
-  const platformListingId = String(manualResult.body.platformListingId)
-  await post('/platform-listings/status', {
-    platformListingId,
-    coreStatus: 'live',
-    rawStatus: 'live',
-  })
+  expect(publishApproved.body.platformListingId).not.toBeNull()
+  expect(publishApproved.body.coreStatus).toBe('live')
+  const platformListingId = String(publishApproved.body.platformListingId)
 
   // S4: order -> procurement -> hard payment gate -> provider shipment -> delivery -> refund.
   const imported = await post('/commerce/orders/import', {
@@ -224,8 +208,7 @@ it('runs the full mock business chain from sourcing to fulfillment and refund', 
   expect(actions).toEqual(expect.arrayContaining([
     'product.create_from_selection',
     'listing.draft_created',
-    'listing.manual_result_imported',
-    'listing.platform_status_updated',
+    'listing.auto_published',
     'order.imported',
     'procurement.created',
     'payment.confirmed',

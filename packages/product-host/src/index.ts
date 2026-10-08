@@ -27,6 +27,7 @@ import {
   type ListingDeps,
 } from '@toneclaw/core-domain'
 import { ProductStorage } from '@toneclaw/product-storage'
+import { MockTemuAdapter } from '@toneclaw/marketplace-adapter-mock'
 import { PlatformConnectionService } from './platform/connection-service.ts'
 import { handlePlatformCommand } from './routes/platform.ts'
 import { handleCommerceCommand } from './routes/commerce.ts'
@@ -77,6 +78,7 @@ export function apply(ctx: ProductHostContext, config: unknown): () => void {
 export class ProductImportHost {
   private readonly storage: ProductStorage
   private readonly platform: PlatformConnectionService
+  private readonly marketplaceAdapter = new MockTemuAdapter()
   private readonly commandToken = randomUUID()
   private watcher: FSWatcher | null = null
   private commandServer: Server | null = null
@@ -270,6 +272,14 @@ export class ProductImportHost {
       clock: { now: () => new Date() },
       audit: this.storage.audit,
       stores: this.storage.stores,
+      submitListing: async (storeId, payload) => {
+        const submitted = await this.marketplaceAdapter.createListing(storeId, payload)
+        if (submitted.externalListingId === null || submitted.submitted !== true) return submitted
+        const status = await this.marketplaceAdapter.fetchListingStatus(
+          storeId, submitted.externalListingId,
+        )
+        return { ...submitted, coreStatus: status.coreStatus }
+      },
     }
   }
 
@@ -530,6 +540,9 @@ export class ProductImportHost {
           approvalTaskId: result.task.id,
           publishJobId: result.job?.id ?? null,
           revisionId: result.revision?.id ?? null,
+          platformListingId: result.platformListing?.id ?? null,
+          externalListingId: result.platformListing?.externalListingId ?? null,
+          coreStatus: result.platformListing?.coreStatus ?? null,
         })
         return
       }

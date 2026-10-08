@@ -48,7 +48,32 @@ export interface ListingDeps extends ListingRepositories {
   clock: Clock
   audit: AuditSink
   stores: StoreRepository
+  submitListing?: ListingSubmitter
 }
+
+export interface ListingSubmitPayload {
+  listingDraftId: string
+  title: string
+  description: string
+  platformCategoryId: string
+  attributes: Record<string, string>
+  priceMinor: number
+  currency: string
+  stockQty: number
+  imageUrls: string[]
+}
+
+export interface ListingSubmitOutcome {
+  externalListingId: string | null
+  submitted: boolean
+  rawStatus: string
+  coreStatus?: PlatformListing['coreStatus']
+}
+
+export type ListingSubmitter = (
+  storeId: string,
+  payload: ListingSubmitPayload,
+) => Promise<ListingSubmitOutcome>
 
 export interface GenerateListingInput {
   workspaceId: string
@@ -929,6 +954,33 @@ export interface PublishConfirmationResult {
   task: ApprovalTask
   job: PublishJob | null
   revision: ListingRevision | null
+  platformListing: PlatformListing | null
+}
+
+async function buildListingSubmitPayload(
+  deps: ListingDeps,
+  draft: ListingDraft,
+): Promise<ListingSubmitPayload> {
+  const imageUrls: string[] = []
+  for (const mediaVariantId of draft.mediaVariantIds) {
+    const variant = await deps.mediaVariants.findById(draft.businessAccountId, mediaVariantId)
+    if (variant !== undefined) imageUrls.push(variant.storageRef)
+  }
+  const attributes: Record<string, string> = {}
+  for (const attribute of draft.attributes) {
+    attributes[attribute.key] = String(attribute.value)
+  }
+  return {
+    listingDraftId: draft.id,
+    title: draft.title,
+    description: draft.description,
+    platformCategoryId: draft.platformCategoryId,
+    attributes,
+    priceMinor: draft.priceMinor,
+    currency: draft.currency,
+    stockQty: draft.stockQty,
+    imageUrls,
+  }
 }
 
 export async function decidePublishConfirmation(
@@ -951,7 +1003,7 @@ export async function decidePublishConfirmation(
     auditEvent(deps, input.workspaceId, 'listing.publish_confirmation_rejected', 'ListingDraft', draft.id, {
       approvalTaskId: task.id, reason: input.reason,
     }, input.actorId)
-    return { draft, task: resolved, job: null, revision: null }
+    return { draft, task: resolved, job: null, revision: null, platformListing: null }
   }
 
   const jobId = deps.ids.next()
@@ -993,7 +1045,109 @@ export async function decidePublishConfirmation(
     publishJobId: job.id,
     revisionId: revision.id,
   }, input.actorId)
-  return { draft, task: resolved, job, revision }
+
+  if (deps.submitListing === undefined) {
+    return { draft, task: resolved, job, revision, platformListing: null }
+  }
+
+  const runningJob: PublishJob = {
+    ...job,
+    status: 'running',
+    attemptCount: 1,
+    startedAt: now,
+    nextAction: null,
+    updatedAt: now,
+  }
+  await deps.publishJobs.update(runningJob)
+  try {
+    const payload = await buildListingSubmitPayload(deps, draft)
+    const submission = await deps.submitListing(draft.storeId, payload)
+    if (submission.externalListingId === null || submission.submitted !== true) {
+      throw new Error('platform listing submission did not return an external listing id')
+    }
+    const submittedAt = deps.clock.now().toISOString()
+    const existing = await deps.platformListings.findByExternalId(
+      input.workspaceId, draft.platform, draft.storeId, submission.externalListingId,
+    )
+    const platformListing: PlatformListing = existing ?? {
+      id: deps.ids.next(),
+      businessAccountId: input.workspaceId,
+      productId: draft.productId,
+      listingDraftId: draft.id,
+      origin: 'draft_published',
+      storeId: draft.storeId,
+      platform: draft.platform,
+      externalListingId: submission.externalListingId,
+      url: null,
+      coreStatus: submission.coreStatus ?? 'submitted',
+      rawStatus: submission.rawStatus,
+      priceMinor: draft.priceMinor,
+      currency: draft.currency,
+      stockQty: draft.stockQty,
+      lastSyncedAt: submittedAt,
+      createdAt: submittedAt,
+      updatedAt: submittedAt,
+    }
+    platformListing.coreStatus = submission.coreStatus ?? 'submitted'
+    platformListing.rawStatus = submission.rawStatus
+    platformListing.priceMinor = draft.priceMinor
+    platformListing.stockQty = draft.stockQty
+    platformListing.lastSyncedAt = submittedAt
+    platformListing.updatedAt = submittedAt
+    if (existing === undefined) await deps.platformListings.insert(platformListing)
+    else await deps.platformListings.update(platformListing)
+
+    const appliedRevision: ListingRevision = {
+      ...revision,
+      platformListingId: platformListing.id,
+      status: 'applied',
+    }
+    await deps.revisions.update(appliedRevision)
+    const publishedDraft: ListingDraft = {
+      ...draft,
+      status: 'published_snapshot',
+      lastSyncedAt: submittedAt,
+      updatedAt: submittedAt,
+    }
+    await deps.drafts.update(publishedDraft)
+    const succeededJob: PublishJob = {
+      ...runningJob,
+      status: 'succeeded',
+      externalJobRef: platformListing.externalListingId,
+      finishedAt: submittedAt,
+      nextAction: null,
+      updatedAt: submittedAt,
+    }
+    await deps.publishJobs.update(succeededJob)
+    auditEvent(deps, input.workspaceId, 'listing.auto_published', 'PlatformListing', platformListing.id, {
+      listingDraftId: draft.id,
+      externalListingId: platformListing.externalListingId,
+      coreStatus: platformListing.coreStatus,
+      publishJobId: job.id,
+      revisionId: revision.id,
+    }, input.actorId)
+    return {
+      draft: publishedDraft,
+      task: resolved,
+      job: succeededJob,
+      revision: appliedRevision,
+      platformListing,
+    }
+  } catch (error) {
+    const failedJob: PublishJob = {
+      ...runningJob,
+      status: 'failed',
+      errorCatalogId: null,
+      nextAction: 'Retry automatic submission or use manual fallback.',
+      finishedAt: deps.clock.now().toISOString(),
+      updatedAt: deps.clock.now().toISOString(),
+    }
+    await deps.publishJobs.update(failedJob)
+    auditEvent(deps, input.workspaceId, 'listing.auto_publish_failed', 'PublishJob', job.id, {
+      reason: error instanceof Error ? error.message : 'unknown submission failure',
+    }, input.actorId)
+    throw error
+  }
 }
 
 export interface ManualFallbackInput {

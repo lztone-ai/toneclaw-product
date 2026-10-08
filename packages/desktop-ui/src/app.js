@@ -316,9 +316,7 @@
             <button type="button" data-listing-action="reject" data-id="${escapeHtml(listing.id)}">拒绝</button>
           </div>
           <p class="context-note">${escapeHtml(task?.reason ?? "")}</p>`;
-      } else if (listing.status === "approved" && pkg === undefined) {
-        governance = '<div class="actions"><button type="button" data-listing-action="package" data-id="' + escapeHtml(listing.id) + '">生成人工上架包</button></div>';
-      } else if (listing.status === "approved" && pkg !== undefined) {
+      } else if (listing.status === "approved") {
         const confirmation = (snapshot.approvalTasks ?? []).find((task) => task.targetId === listing.id &&
           task.taskType === "publish_confirmation" && task.status === "pending");
         const job = (snapshot.publishJobs ?? []).find((candidate) => candidate.listingDraftId === listing.id);
@@ -331,8 +329,10 @@
             </div>`;
         } else if (job === undefined) {
           governance = '<div class="actions"><button type="button" data-listing-action="submit-publish" data-id="' + escapeHtml(listing.id) + '">提交发布确认</button></div>';
+        } else if (job !== undefined && job.status === "running") {
+          governance = '<p class="context-note">正在自动提交平台 Listing。</p>';
         } else {
-          governance = '<p class="context-note">发布任务已创建，请在发布中心处理人工通道。</p>';
+          governance = '<p class="context-note">发布任务已完成，可在发布中心查看平台 Listing。</p>';
         }
       }
 
@@ -426,7 +426,7 @@
         await postProductCommand("/listings/publish-confirmation/decide", {
           listingDraftId, decision: action === "publish-approve" ? "approved" : "rejected", reason,
         });
-        setListingNotice("发布确认已保存。", "success");
+        setListingNotice("发布确认已通过，Listing 已自动提交上架。", "success");
       }
       await refreshSourcing();
     } catch (error) {

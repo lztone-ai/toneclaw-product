@@ -33,7 +33,7 @@ it('walks the full TAC 3.4 lifecycle: pending → active → expired → disconn
   })
 })
 
-it('expires credentials by TTL and probes TAC §4 capability degradation', async () => {
+it('expires credentials by TTL and probes the mock capability surface', async () => {
   let now = 1_000_000
   const adapter = new MockTemuAdapter({ now: () => now, credentialTtlMs: 120_000 })
   await adapter.createAuthorization({ businessAccountId: 'ba-1', connectionId: 'conn-2', userId: 'user-1' })
@@ -46,14 +46,21 @@ it('expires credentials by TTL and probes TAC §4 capability degradation', async
   const capabilities = await adapter.fetchStoreCapabilities('conn-2', 'mock-store-conn-2')
   expect(capabilities).toHaveLength(8)
   expect(capabilities.find(capability => capability.capabilityKey === 'listing.create'))
-    .toMatchObject({ status: 'unavailable', mode: 'export_import' })
+    .toMatchObject({ status: 'available', mode: 'api' })
+  expect(capabilities.find(capability => capability.capabilityKey === 'listing.status.read'))
+    .toMatchObject({ status: 'available', mode: 'api' })
+  expect(capabilities.find(capability => capability.capabilityKey === 'settlement.read'))
+    .toMatchObject({ status: 'unavailable', mode: 'manual' })
   expect(capabilities.find(capability => capability.capabilityKey === 'store.read'))
     .toMatchObject({ status: 'available', mode: 'api' })
 
-  await expect(adapter.createListing('mock-store-conn-2', {
+  const submitted = await adapter.createListing('mock-store-conn-2', {
     listingDraftId: 'ld-1', title: 'x', description: 'x', platformCategoryId: 'mock-cat-blender',
     attributes: {}, priceMinor: 100, currency: 'USD', stockQty: 1, imageUrls: [],
-  })).rejects.toMatchObject({ capabilityKey: 'listing.create' })
+  })
+  expect(submitted).toMatchObject({ externalListingId: 'MOCK-LISTING-LD-1', submitted: true, rawStatus: 'submitted' })
+  await expect(adapter.fetchListingStatus('mock-store-conn-2', submitted.externalListingId ?? 'MOCK-LISTING-LD-1'))
+    .resolves.toMatchObject({ coreStatus: 'live', rawStatus: 'live' })
 
   const store = await adapter.fetchStore('conn-2', 'mock-store-conn-2')
   expect(store.businessMode).toBe('semi_managed')

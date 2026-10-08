@@ -45,7 +45,9 @@ it('runs the mock authorization loop end to end against storage (Slice A smoke)'
   expect(stores.stores[0]?.businessMode).toBe('semi_managed')
   expect(stores.stores[0]?.capabilities).toHaveLength(8)
   expect(stores.stores[0]?.capabilities.find(capability => capability.capabilityKey === 'listing.create'))
-    .toMatchObject({ status: 'unavailable', mode: 'export_import' })
+    .toMatchObject({ status: 'available', mode: 'api' })
+  expect(stores.stores[0]?.capabilities.find(capability => capability.capabilityKey === 'listing.status.read'))
+    .toMatchObject({ status: 'available', mode: 'api' })
 
   await service.expire(start.connectionId)
   const health = await service.verify(start.connectionId)

@@ -134,13 +134,13 @@ export class MockTemuAdapter implements MarketplaceAdapter {
     }
   }
 
-  /** TAC §4 degradation: listing.create/status.read/settlement.read are not API-backed in P0. */
+  /** Mock capability: listing create/status read are API-backed so the desktop chain can auto-publish. */
   async fetchStoreCapabilities(platformConnectionId: string, storeId: string): Promise<StoreCapability[]> {
     this.requireConnection(platformConnectionId)
     const checkedAt = new Date(this.now()).toISOString()
     const degraded: Record<string, { status: StoreCapability['status']; mode: StoreCapability['mode']; notes: string | null }> = {
-      'listing.create': { status: 'unavailable', mode: 'export_import', notes: 'TAC §4：导出资料包人工上架' },
-      'listing.status.read': { status: 'unavailable', mode: 'manual', notes: 'TAC §4：人工导入平台状态' },
+      'listing.create': { status: 'available', mode: 'api', notes: 'Mock 自动上架' },
+      'listing.status.read': { status: 'available', mode: 'api', notes: 'Mock 平台状态回读' },
       'settlement.read': { status: 'unavailable', mode: 'manual', notes: 'TAC §4：可延后' },
     }
     return P0_CAPABILITY_KEYS.map(capabilityKey => {
@@ -170,12 +170,16 @@ export class MockTemuAdapter implements MarketplaceAdapter {
     }
   }
 
-  async createListing(_storeId: string, _listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
-    throw new AdapterUnsupportedError('listing.create')
+  async createListing(_storeId: string, listingDraft: ListingSubmitPayload): Promise<ListingSubmitResult> {
+    return {
+      externalListingId: `MOCK-LISTING-${listingDraft.listingDraftId.slice(-8).toUpperCase()}`,
+      submitted: true,
+      rawStatus: 'submitted',
+    }
   }
 
-  async fetchListingStatus(_storeId: string, _externalListingId: string): Promise<ListingStatusResult> {
-    throw new AdapterUnsupportedError('listing.status.read')
+  async fetchListingStatus(_storeId: string, externalListingId: string): Promise<ListingStatusResult> {
+    return { externalListingId, coreStatus: 'live', rawStatus: 'live' }
   }
 
   async importListingResult(_storeId: string, _importedListingPayload: unknown): Promise<ManualImportResult> {
